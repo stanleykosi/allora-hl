@@ -1,0 +1,45 @@
+/**
+ * @description
+ * Global CSS styles for the application.
+ * Includes Tailwind CSS base, components, and utilities.
+ * Can be used for defining custom global styles or overriding defaults.
+ */
+
+/* Import Tailwind CSS directives */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Define CSS variables for theming (optional, example shown) */
+/* :root {
+  --foreground-rgb: 0, 0, 0;
+  --background-start-rgb: 214, 219, 220;
+  --background-end-rgb: 255, 255, 255;
+} */
+
+/* Apply dark mode variables (optional, example shown) */
+/* @media (prefers-color-scheme: dark) {
+  :root {
+    --foreground-rgb: 255, 255, 255;
+    --background-start-rgb: 0, 0, 0;
+    --background-end-rgb: 0, 0, 0;
+  }
+} */
+
+/* Apply base body styles */
+/* body {
+  color: rgb(var(--foreground-rgb));
+  background: linear-gradient(
+      to bottom,
+      transparent,
+      rgb(var(--background-end-rgb))
+    )
+    rgb(var(--background-start-rgb));
+} */
+
+/* Apply focus-visible polyfill styles (optional utility) */
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}
