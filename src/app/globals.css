@@ -11,23 +11,23 @@
 @tailwind utilities;
 
 /* Define CSS variables for theming (optional, example shown) */
-/* :root {
+ :root {
   --foreground-rgb: 0, 0, 0;
   --background-start-rgb: 214, 219, 220;
   --background-end-rgb: 255, 255, 255;
-} */
+} 
 
 /* Apply dark mode variables (optional, example shown) */
-/* @media (prefers-color-scheme: dark) {
+ @media (prefers-color-scheme: dark) {
   :root {
     --foreground-rgb: 255, 255, 255;
     --background-start-rgb: 0, 0, 0;
     --background-end-rgb: 0, 0, 0;
   }
-} */
+} 
 
 /* Apply base body styles */
-/* body {
+body {
   color: rgb(var(--foreground-rgb));
   background: linear-gradient(
       to bottom,
@@ -35,7 +35,7 @@
       rgb(var(--background-end-rgb))
     )
     rgb(var(--background-start-rgb));
-} */
+} 
 
 /* Apply focus-visible polyfill styles (optional utility) */
 @layer utilities {
