@@ -18,8 +18,10 @@ export * from "./actions-types";
 // Export types related to Hyperliquid API interactions
 export * from "./hyperliquid-types";
 
+// Export types related to Allora API interactions
+export * from "./allora-types";
+
 // Future exports for other type definitions will be added here, for example:
-// export * from './allora-types';
 // export * from './template-types';
 // export * from './common-types';
 // export * from './settings-types';
@@ -28,4 +30,3 @@ export * from "./hyperliquid-types";
 // Export generic JSX type definition file (if needed, can conflict with React's global JSX)
 // export * from "./jsx"; // Assuming jsx.d.ts exists and is correctly structured
 // Note: Avoid exporting global namespace augmentation like jsx.d.ts unless necessary and handled carefully.
-
