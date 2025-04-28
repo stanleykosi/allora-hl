@@ -1,28 +1,22 @@
 /**
  * @description
  * The default home page component for the application (route '/').
- * Currently displays a simple placeholder message. Will be updated later
- * to potentially redirect to the main dashboard.
+ * This component immediately redirects the user to the main dashboard at '/dashboard'.
  *
  * @dependencies
- * - React: For component structure.
+ * - next/navigation: Provides the `redirect` function for server-side redirects.
  *
  * @notes
- * - This is a Server Component by default in the Next.js App Router.
+ * - This is a Server Component. Redirecting here prevents rendering unnecessary
+ * content on the root page.
  */
-import React from 'react';
+import { redirect } from 'next/navigation';
 
 /**
- * Renders the default home page.
- * @returns {React.ReactNode} The rendered home page component.
+ * Immediately redirects the user to the /dashboard route.
+ * @returns {never} This component never renders anything as it always redirects.
  */
-export default function Home(): React.ReactNode {
-  return (
-    <main className="flex min-h-screen flex-col items-center justify-center p-24">
-      <h1 className="text-2xl font-bold">Allora Hyperliquid Assistant</h1>
-      <p className="mt-4">Loading...</p> 
-      {/* This content will be replaced later, possibly with a redirect */}
-    </main>
-  );
+export default function RootPage(): never {
+  // Perform a permanent server-side redirect to the dashboard
+  redirect('/dashboard');
 }
-
