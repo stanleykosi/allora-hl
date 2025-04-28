@@ -1,0 +1,74 @@
+/**
+ * @description
+ * Prisma schema definition for the Allora-Hyperliquid Trade Assistant.
+ * Defines the database connection, client generator, and data models.
+ *
+ * Datasource: Configured to use SQLite via the DATABASE_URL environment variable.
+ * Generator: Specifies the Prisma Client JS generator.
+ *
+ * Models:
+ * - TradeTemplate: Stores user-defined templates for trade parameters (name, size, leverage).
+ * - TradeLog: Records details of trades executed through the application.
+ */
+
+// Specifies the database connection details.
+// Using SQLite for local development as indicated by DATABASE_URL env var.
+datasource db {
+  provider = "sqlite" // Database provider (SQLite in this case)
+  url      = env("DATABASE_URL") // Connection URL loaded from environment variables
+}
+
+// Specifies the Prisma Client generator.
+// Generates TypeScript types based on the schema for type-safe database access.
+generator client {
+  provider = "prisma-client-js" // The generator provider
+}
+
+/**
+ * @description
+ * Stores user-defined trade parameter templates.
+ * These templates allow users to quickly populate trade configurations.
+ *
+ * @field id - Unique identifier for the template (using CUID).
+ * @field createdAt - Timestamp when the template was created.
+ * @field updatedAt - Timestamp when the template was last updated.
+ * @field name - User-defined name for the template (must be unique).
+ * @field size - Trade size associated with the template.
+ * @field leverage - Leverage associated with the template.
+ */
+model TradeTemplate {
+  id        String   @id @default(cuid()) // Primary key, generated using CUID
+  createdAt DateTime @default(now()) // Set to current time on creation
+  updatedAt DateTime @updatedAt // Automatically updated on modification
+  name      String   @unique // Name of the template, must be unique
+  size      Float // Trade size (e.g., number of contracts or base currency amount)
+  leverage  Float // Desired leverage for the trade
+}
+
+/**
+ * @description
+ * Logs details of trades executed through this application.
+ * Provides a history of trading activity initiated by the user via the assistant.
+ *
+ * @field id - Unique identifier for the log entry (using CUID).
+ * @field timestamp - Timestamp when the trade was executed or attempted.
+ * @field symbol - The trading symbol (e.g., "BTC-PERP").
+ * @field direction - The direction of the trade ("long" or "short").
+ * @field size - The size of the trade executed.
+ * @field entryPrice - The price at which the trade was executed (fill price).
+ * @field status - The status of the trade execution ("filled", "failed", "pending").
+ * @field hyperliquidOrderId - Optional: The order ID returned by Hyperliquid upon successful execution.
+ * @field errorMessage - Optional: Any error message if the trade execution failed.
+ */
+model TradeLog {
+  id                 String   @id @default(cuid()) // Primary key, generated using CUID
+  timestamp          DateTime @default(now()) // Time the log entry was created (approximates execution time)
+  symbol             String // Trading symbol (e.g., "BTC-PERP")
+  direction          String // "long" or "short"
+  size               Float // Size of the trade
+  entryPrice         Float // Fill price of the executed order
+  status             String // Execution status ("filled", "failed", "pending")
+  hyperliquidOrderId String? // Optional: Hyperliquid's order ID if successful
+  errorMessage       String? // Optional: Error message if execution failed
+}
+
