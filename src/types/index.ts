@@ -21,8 +21,10 @@ export * from "./hyperliquid-types";
 // Export types related to Allora API interactions
 export * from "./allora-types";
 
+// Export types related to Trade Templates
+export * from "./template-types";
+
 // Future exports for other type definitions will be added here, for example:
-// export * from './template-types';
 // export * from './common-types';
 // export * from './settings-types';
 // export * from './log-types';
