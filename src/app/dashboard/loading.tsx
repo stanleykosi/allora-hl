@@ -7,21 +7,23 @@
  *
  * @dependencies
  * - React: For component structure.
+ * - @/components/ui/LoadingSpinner: The shared loading spinner component.
  *
  * @notes
- * - This will be enhanced in Step 14 to use a proper `LoadingSpinner` component.
+ * - Uses the shared LoadingSpinner component for consistent loading indication.
  */
-import React from "react";
+import React from 'react';
+import LoadingSpinner from '@/components/ui/LoadingSpinner';
 
 /**
- * Renders the loading state UI for the dashboard.
+ * Renders the loading state UI for the dashboard using the LoadingSpinner component.
  * @returns {React.ReactElement} The loading UI component.
  */
 export default function Loading(): React.ReactElement {
   return (
-    <div className="flex items-center justify-center min-h-[calc(100vh-10rem)]">
-      {/* Placeholder Text - To be replaced by LoadingSpinner in Step 14 */}
-      <p className="text-lg animate-pulse">Loading Dashboard...</p>
+    <div className="flex h-[calc(100vh-10rem)] flex-col items-center justify-center space-y-4">
+      <LoadingSpinner size={48} />
+      <p className="text-lg text-muted-foreground">Loading Dashboard Data...</p>
     </div>
   );
 }
