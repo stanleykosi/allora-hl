@@ -7,41 +7,35 @@
  * Key features:
  * - Fetches trade templates using `getTemplatesAction`.
  * - Renders the `ManageTemplatesClient` component to handle template UI.
- * - Renders the `SettingsForm` component (placeholder for now) for UI settings.
- * - Passes fetched templates down as props.
- * - Includes basic error handling for the initial data fetch.
+ * - Renders the `SettingsForm` component for UI settings management using localStorage.
+ * - Passes fetched templates down as props to `ManageTemplatesClient`.
+ * - Includes basic error handling display for the initial template fetch.
  *
  * @dependencies
  * - React: For component structure.
  * - @/actions/template-actions: Server Action to fetch trade templates from the database.
  * - @/types: Type definitions for TradeTemplate and ActionState.
  * - @/app/settings/_components/ManageTemplatesClient: Client component for template management.
- * - Placeholder Client Components: `SettingsForm` (to be created in subsequent steps).
- * - @/components/ui/ErrorDisplay: To show fetch errors (handled within ManageTemplatesClient now).
+ * - @/app/settings/_components/SettingsForm: Client component for UI settings management.
  *
  * @notes
- * - This page uses a Server Component approach for initial data loading.
+ * - This page uses a Server Component approach for initial data loading (templates).
  * - The actual UI interaction and state management for settings and templates
- * will be handled within the client components (`ManageTemplatesClient`, `SettingsForm`).
+ * are handled within their respective client components (`ManageTemplatesClient`, `SettingsForm`).
  */
 import React from 'react';
 import { getTemplatesAction } from '@/actions/template-actions';
 import type { TradeTemplate } from '@/types';
 // Import the actual client component for managing templates
 import ManageTemplatesClient from './_components/ManageTemplatesClient';
-
-// Placeholder component for SettingsForm - Replace with actual import in Step 22
-const SettingsForm = () => (
-  <div className="p-4 border rounded-lg bg-card text-card-foreground shadow-sm min-h-[150px]">
-    <h3 className="font-semibold mb-2">UI & Fetch Settings</h3>
-    <p className="text-muted-foreground text-sm mt-2">(Placeholder - Full component in Step 22)</p>
-  </div>
-);
+// Import the actual client component for managing UI settings
+import SettingsForm from './_components/SettingsForm';
 
 
 /**
  * Renders the settings page.
  * Fetches initial trade templates and passes them to the client component.
+ * Renders the form for managing UI settings.
  * @returns {Promise<JSX.Element>} A promise resolving to the rendered settings page component.
  */
 export default async function SettingsPage(): Promise<JSX.Element> {
@@ -60,15 +54,14 @@ export default async function SettingsPage(): Promise<JSX.Element> {
     <div className="space-y-6">
       <h2 className="text-2xl font-semibold">Settings</h2>
 
+      {/* Section for managing UI Preferences (e.g., refresh intervals, alerts) */}
+      <SettingsForm />
+
       {/* Section for managing Trade Parameter Templates */}
       <ManageTemplatesClient
         initialTemplates={initialTemplates}
         initialError={initialTemplatesError}
       />
-
-      {/* Section for managing UI Preferences (e.g., refresh intervals, alerts) */}
-      {/* This remains a placeholder until Step 22 */}
-      <SettingsForm />
 
     </div>
   );
