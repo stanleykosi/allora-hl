@@ -20,8 +20,9 @@
  * - @/components/ui/LoadingSpinner: Shared component for loading indication.
  * - @/components/ui/ErrorDisplay: Shared component for displaying errors.
  * - ./AccountSummary: Component to display account balance/margin info.
+ * - ./PositionTable: Component to display open positions.
  * - ./AlloraStatusIndicator: Component to display Allora API status.
- * - Placeholder components (PositionTable, PredictionFeed, TradePanel, TradeLog) to be replaced later.
+ * - Placeholder components (PredictionFeed, TradePanel, TradeLog) to be replaced later.
  * - @/lib/constants: Provides default settings values.
  *
  * @notes
@@ -47,19 +48,12 @@ import { fetchHyperliquidAccountInfoAction } from "@/actions/hyperliquid-actions
 import { DEFAULT_APP_SETTINGS } from "@/lib/constants";
 import StatusIndicator, { StatusType } from "@/components/ui/StatusIndicator";
 import AccountSummary from "./AccountSummary"; // Import the actual component
+import PositionTable from "./PositionTable"; // Import the actual PositionTable component
 import AlloraStatusIndicator from "./AlloraStatusIndicator"; // Import the status component
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
 import ErrorDisplay from "@/components/ui/ErrorDisplay";
 
 // Placeholder components - these will be imported properly in later steps
-const PositionTablePlaceholder = ({ initialPositions, initialError }: { initialPositions: HyperliquidPosition[] | null, initialError: string | null }) => (
-  <div className="p-4 border rounded-lg bg-card text-card-foreground shadow-sm min-h-[150px]">
-    <h3 className="font-semibold mb-2">Open Positions</h3>
-    {initialError && <p className="text-destructive text-sm">Error loading: {initialError}</p>}
-    <pre className="text-xs overflow-auto">{JSON.stringify(initialPositions, null, 2)}</pre>
-    <p className="text-muted-foreground text-sm mt-2">(Placeholder - Full component in Step 18)</p>
-  </div>
-);
 const TradeLogPlaceholder = ({ initialLogs, initialError }: { initialLogs: TradeLogEntry[] | null, initialError: string | null }) => (
   <div className="p-4 border rounded-lg bg-card text-card-foreground shadow-sm min-h-[150px]">
     <h3 className="font-semibold mb-2">Trade Log</h3>
@@ -190,8 +184,8 @@ export default function DashboardClientContent({
             error={currentAccountInfoError} // Pass current error state
           />
 
-          {/* Position Table Component (Placeholder) */}
-          <PositionTablePlaceholder
+          {/* Position Table Component */}
+          <PositionTable
             initialPositions={initialPositions}
             initialError={initialPositionsError}
           />
