@@ -89,11 +89,11 @@ const PositionTable: React.FC<PositionTableProps> = ({
     data: positions,
     isLoading,
     error,
-    refresh, // Function to manually trigger refresh if needed
+    refresh,
   } = usePeriodicFetcher(
     fetchHyperliquidPositionsAction,
-    settings.accountRefreshInterval, // Use the account refresh interval from settings
-    initialPositions, // Use initial data from server
+    settings.accountRefreshInterval,
+    initialPositions,
   );
 
   // Use the initial error from props if the first client-side fetch hasn't happened yet or if fetcher has no error yet
@@ -109,116 +109,21 @@ const PositionTable: React.FC<PositionTableProps> = ({
   };
 
   // Helper function to get asset name (placeholder logic)
-  // TODO: Replace with actual logic using meta data if available
   const getAssetName = (position: HyperliquidPosition): string => {
-    // Example placeholder: Use the coin name directly if present, otherwise use index
-    return position.position.coin || `Asset ${position.position.coin}`; // Adapt based on actual data structure
+    return position.position.coin || `Asset ${position.position.coin}`;
   };
 
-  const renderContent = () => {
-    if (isLoading && !currentPositions) {
-      // Show loading spinner only if there's no stale data
-      return (
-        <div className="flex justify-center items-center h-40">
-          <LoadingSpinner />
-        </div>
-      );
-    }
-
-    if (currentError && !currentPositions) {
-      // Show error only if there's no stale data
-      return <ErrorDisplay error={currentError} />;
-    }
-
-    if (!currentPositions || currentPositions.length === 0) {
-      return (
-        <p className="text-muted-foreground text-center py-10">
-          No open positions.
-        </p>
-      );
-    }
-
-    // Filter for positions with non-zero size
-    const openPositions = currentPositions.filter(
-      (p) => parseFloat(p.position.szi) !== 0,
-    );
-
-    if (openPositions.length === 0) {
-      return (
-        <p className="text-muted-foreground text-center py-10">
-          No open positions.
-        </p>
-      );
-    }
-
-    return (
-      <Table>
-        <TableCaption>Your currently open positions on Hyperliquid.</TableCaption>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Asset</TableHead>
-            <TableHead>Direction</TableHead>
-            <TableHead className="text-right">Size</TableHead>
-            <TableHead className="text-right">Entry Price</TableHead>
-            <TableHead className="text-right">Unrealized PnL</TableHead>
-            <TableHead className="text-right">Margin Used</TableHead>
-            <TableHead className="text-right">Est. Liq. Price</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {openPositions.map((pos, index) => {
-            const positionDetails = pos.position;
-            const positionSize = parseFloat(positionDetails.szi);
-            const direction = positionSize > 0 ? "Long" : "Short";
-            const entryPrice = parseFloat(positionDetails.entryPx || "0");
-            const unrealizedPnl = parseFloat(positionDetails.unrealizedPnl || "0");
-            const marginUsed = parseFloat(positionDetails.marginUsed || "0");
-            const liquidationPrice = parseFloat(
-              positionDetails.liquidationPx || "0",
-            );
-            const pnlColor = getPnlColor(unrealizedPnl);
-
-            return (
-              <TableRow key={`${positionDetails.coin}-${index}`}>
-                <TableCell className="font-medium">
-                  {getAssetName(pos)}
-                </TableCell>
-                <TableCell
-                  className={clsx(
-                    direction === "Long" ? "text-green-600" : "text-red-600",
-                  )}
-                >
-                  {direction}
-                </TableCell>
-                <TableCell className="text-right">
-                  {formatNumber(Math.abs(positionSize), 4)}
-                </TableCell>
-                <TableCell className="text-right">
-                  {formatCurrency(entryPrice)}
-                </TableCell>
-                <TableCell className={clsx("text-right font-medium", pnlColor)}>
-                  {formatCurrency(unrealizedPnl)}
-                </TableCell>
-                <TableCell className="text-right">
-                  {formatCurrency(marginUsed)}
-                </TableCell>
-                <TableCell className="text-right">
-                  {liquidationPrice > 0 ? formatCurrency(liquidationPrice) : "N/A"}
-                </TableCell>
-              </TableRow>
-            );
-          })}
-        </TableBody>
-      </Table>
-    );
-  };
+  // Filter for positions with non-zero size
+  const openPositions = currentPositions?.filter(
+    (p) => parseFloat(p.position.szi) !== 0,
+  ) ?? [];
 
   return (
     <Card>
       <CardHeader>
         <CardTitle>Open Positions</CardTitle>
         <CardDescription>
-          Real-time overview of your open positions on Hyperliquid.
+          Your current open positions on Hyperliquid.
           {isLoading && currentPositions && (
             <span className="text-yellow-600 ml-2">(Updating...)</span>
           )}
@@ -227,7 +132,62 @@ const PositionTable: React.FC<PositionTableProps> = ({
           )}
         </CardDescription>
       </CardHeader>
-      <CardContent>{renderContent()}</CardContent>
+      <CardContent>
+        <div className="min-h-[200px]">
+          {isLoading && !currentPositions && (
+            <div className="flex justify-center items-center h-40">
+              <LoadingSpinner />
+            </div>
+          )}
+
+          {currentError && !currentPositions && (
+            <ErrorDisplay error={currentError} />
+          )}
+
+          {!isLoading && !currentError && (!currentPositions || openPositions.length === 0) && (
+            <p className="text-muted-foreground text-center py-10">
+              No open positions.
+            </p>
+          )}
+
+          {openPositions.length > 0 && (
+            <div className="w-full overflow-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Asset</TableHead>
+                    <TableHead>Size</TableHead>
+                    <TableHead>Entry Price</TableHead>
+                    <TableHead>Mark Price</TableHead>
+                    <TableHead className="text-right">Unrealized PnL</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {openPositions.map((position) => {
+                    const assetName = getAssetName(position);
+                    const size = parseFloat(position.position.szi);
+                    const entryPrice = parseFloat(position.position.entryPx);
+                    const markPrice = parseFloat(position.position.markPx);
+                    const unrealizedPnl = parseFloat(position.position.unrealizedPnl);
+
+                    return (
+                      <TableRow key={position.position.coin}>
+                        <TableCell>{assetName}</TableCell>
+                        <TableCell>{formatNumber(size)}</TableCell>
+                        <TableCell>{formatCurrency(entryPrice)}</TableCell>
+                        <TableCell>{formatCurrency(markPrice)}</TableCell>
+                        <TableCell className={clsx("text-right", getPnlColor(unrealizedPnl))}>
+                          {formatCurrency(unrealizedPnl)}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </div>
+      </CardContent>
     </Card>
   );
 };

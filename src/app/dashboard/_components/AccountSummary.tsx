@@ -62,51 +62,51 @@ const AccountSummary: React.FC<AccountSummaryProps> = ({
 }): React.ReactElement => {
   // Determine content based on loading, error, and data states
   const renderContent = () => {
-    if (isLoading && !currentAccountInfo) {
-      // Show loading spinner only if there's no stale data to display
-      return (
-        <div className="flex justify-center items-center h-20">
-          <LoadingSpinner />
-        </div>
-      );
-    }
-
-    if (error && !currentAccountInfo) {
-      // Show error only if there's no stale data
-      return <ErrorDisplay error={error} />;
-    }
-
-    if (!currentAccountInfo) {
-      // Handle case where there's no data, no error, and not loading (e.g., initial state before first fetch)
-      return <p className="text-muted-foreground text-sm">No account data available.</p>;
-    }
-
-    // Display account data (potentially stale if isLoading or error is true)
-    const totalEquity = currentAccountInfo?.marginSummary?.accountValue ?? '0';
-    const withdrawable = currentAccountInfo?.withdrawable ?? '0';
-    // Add other relevant fields as needed, e.g., totalMarginUsed, totalNtlPos
-    const totalMarginUsed = currentAccountInfo?.marginSummary?.totalMarginUsed ?? '0';
-    const totalNotionalPosition = currentAccountInfo?.marginSummary?.totalNtlPos ?? '0';
-
+    // Always render a div with consistent structure
     return (
-      <div className="grid grid-cols-2 gap-4 text-sm">
-        <div>
-          <p className="text-muted-foreground">Total Equity</p>
-          <p className="font-semibold text-lg">{formatCurrency(totalEquity)}</p>
-        </div>
-        <div>
-          <p className="text-muted-foreground">Available Margin</p>
-          <p className="font-semibold text-lg">{formatCurrency(withdrawable)}</p>
-        </div>
-        <div>
-          <p className="text-muted-foreground">Margin Used</p>
-          <p className="font-semibold">{formatCurrency(totalMarginUsed)}</p>
-        </div>
-        <div>
-          <p className="text-muted-foreground">Total Position Value</p>
-          <p className="font-semibold">{formatCurrency(totalNotionalPosition)}</p>
-        </div>
-        {/* Add more data points as required */}
+      <div className="min-h-[120px]">
+        {isLoading && !currentAccountInfo && (
+          <div className="flex justify-center items-center h-20">
+            <LoadingSpinner />
+          </div>
+        )}
+
+        {error && !currentAccountInfo && (
+          <ErrorDisplay error={error} />
+        )}
+
+        {!isLoading && !error && !currentAccountInfo && (
+          <p className="text-muted-foreground text-sm">No account data available.</p>
+        )}
+
+        {currentAccountInfo && (
+          <div className="grid grid-cols-2 gap-4 text-sm">
+            <div>
+              <p className="text-muted-foreground">Total Equity</p>
+              <p className="font-semibold text-lg">
+                {formatCurrency(currentAccountInfo?.marginSummary?.accountValue ?? '0')}
+              </p>
+            </div>
+            <div>
+              <p className="text-muted-foreground">Available Margin</p>
+              <p className="font-semibold text-lg">
+                {formatCurrency(currentAccountInfo?.withdrawable ?? '0')}
+              </p>
+            </div>
+            <div>
+              <p className="text-muted-foreground">Margin Used</p>
+              <p className="font-semibold">
+                {formatCurrency(currentAccountInfo?.marginSummary?.totalMarginUsed ?? '0')}
+              </p>
+            </div>
+            <div>
+              <p className="text-muted-foreground">Total Position Value</p>
+              <p className="font-semibold">
+                {formatCurrency(currentAccountInfo?.marginSummary?.totalNtlPos ?? '0')}
+              </p>
+            </div>
+          </div>
+        )}
       </div>
     );
   };
@@ -127,7 +127,6 @@ const AccountSummary: React.FC<AccountSummaryProps> = ({
       </CardHeader>
       <CardContent>
         {renderContent()}
-        {/* Optionally show last updated timestamp */}
         {currentAccountInfo?.time && (
           <p className="text-xs text-muted-foreground mt-2">
             Last updated: {new Date(currentAccountInfo.time).toLocaleString()}

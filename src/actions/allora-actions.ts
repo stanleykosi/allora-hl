@@ -7,6 +7,7 @@
  * - @/types: Provides ActionState and Allora-specific types (AlloraPrediction).
  * - @/lib/allora-client: Provides the setupAlloraClient function to get a configured client.
  * - @alloralabs/allora-sdk: The SDK for interacting with the Allora network, specifically for fetching inferences.
+ * - viem: Used for formatting large number strings with assumed decimals (formatUnits).
  */
 "use server";
 
@@ -16,8 +17,8 @@ import {
   PriceInferenceToken,
   PriceInferenceTimeframe,
   type AlloraInference,
-  AlloraTopic,
 } from "@alloralabs/allora-sdk";
+import { formatUnits } from "viem"; // Import formatUnits for parsing
 
 // Define the supported timeframes for easy mapping and type safety
 type SupportedTimeframe = "5m" | "8h";
@@ -26,8 +27,13 @@ const timeframeMap: Record<SupportedTimeframe, PriceInferenceTimeframe> = {
   "8h": PriceInferenceTimeframe.EIGHT_HOURS,
 };
 
+// Define the assumed number of decimals for the price value from Allora API
+// TRYING 6 DECIMALS INSTEAD OF 18, COMMON FOR USD VALUES. CONFIRM WITH ALLORA DOCS/TEAM.
+const ALLORA_PRICE_DECIMALS = 8;
+
 /**
  * Fetches Bitcoin price predictions from the Allora network for the specified timeframes.
+ * Parses the large integer price string assuming a fixed number of decimals.
  *
  * @param {SupportedTimeframe[]} [timeframes=['5m', '8h']] - An array of timeframes ('5m', '8h') to fetch predictions for. Defaults to ['5m', '8h'].
  * @returns {Promise<ActionState<AlloraPrediction[]>>} An ActionState object containing an array of parsed Allora predictions on success, or an error message on failure.
@@ -51,15 +57,13 @@ export async function fetchAlloraPredictionsAction(
         return null; // Skip unsupported timeframes gracefully
       }
 
-      console.log(`Fetching ${tf} BTC prediction from Allora...`);
+      console.log(`Workspaceing ${tf} BTC prediction from Allora...`);
       try {
         // Use the SDK to get the price inference for Bitcoin (BTC)
         const inferenceResult: AlloraInference =
           await alloraClient.getPriceInference(
             PriceInferenceToken.BTC,
             timeframeEnum,
-            // Optional: Specify signature format if needed, defaults should work
-            // SignatureFormat.ETHEREUM_SEPOLIA
           );
 
         console.log(`Raw ${tf} BTC inference data:`, inferenceResult);
@@ -79,10 +83,37 @@ export async function fetchAlloraPredictionsAction(
           );
         }
 
-        // Parse the raw inference data into our application's standard format
+        // --- PRICE PARSING LOGIC ---
+        let parsedPrice: number;
+        const priceString = inferenceResult.inference_data.network_inference;
+        console.log(`Raw network_inference string for ${tf}:`, priceString); // Log raw string
+        try {
+          // Assume network_inference is a large integer string with fixed decimals
+          // Convert the large integer string to a standard decimal string representation
+          const formattedPriceString = formatUnits(
+            BigInt(priceString), // Convert string to BigInt first
+            ALLORA_PRICE_DECIMALS, // Assumed number of decimals (NOW 6)
+          );
+          console.log(`Formatted price string (after formatUnits with ${ALLORA_PRICE_DECIMALS} decimals) for ${tf}:`, formattedPriceString); // Log formatted string
+          // Parse the formatted string into a number
+          parsedPrice = parseFloat(formattedPriceString);
+          console.log(`Final parsed price number for ${tf}:`, parsedPrice); // Log final number
+          if (isNaN(parsedPrice)) {
+            throw new Error("Formatted price string resulted in NaN.");
+          }
+        } catch (parseError) {
+          console.error(
+            `❌ Failed to parse network_inference "${priceString}" for ${tf} assuming ${ALLORA_PRICE_DECIMALS} decimals:`,
+            parseError,
+          );
+          throw new Error(`Failed to parse price data for ${tf} timeframe.`);
+        }
+        // --- END PRICE PARSING LOGIC ---
+
+        // Parse the rest of the raw inference data into our application's standard format
         const parsedPrediction: AlloraPrediction = {
-          topicId: parseInt(inferenceResult.inference_data.topic_id, 10), // Parse topic_id string to number
-          price: parseFloat(inferenceResult.inference_data.network_inference), // Parse inference string to number
+          topicId: parseInt(inferenceResult.inference_data.topic_id, 10),
+          price: parsedPrice, // Use the correctly parsed price
           timestamp: inferenceResult.inference_data.timestamp * 1000, // Convert seconds to milliseconds
           timeframe: tf, // Add the requested timeframe string for UI use
           // Optional: Include confidence interval data if available and needed by the UI
@@ -94,14 +125,13 @@ export async function fetchAlloraPredictionsAction(
             inferenceResult.inference_data.confidence_interval_percentiles,
         };
 
-        // Validate parsed numbers
+        // Validate parsed numbers (excluding price which was validated during its parsing)
         if (
           isNaN(parsedPrediction.topicId) ||
-          isNaN(parsedPrediction.price) ||
           isNaN(parsedPrediction.timestamp)
         ) {
           console.error(
-            `❌ Failed to parse numeric values from inference data for ${tf}.`,
+            `❌ Failed to parse numeric values (topicId/timestamp) from inference data for ${tf}.`,
             inferenceResult.inference_data,
           );
           throw new Error(`Failed to parse numeric data for ${tf} timeframe.`);
@@ -119,18 +149,17 @@ export async function fetchAlloraPredictionsAction(
           parsedPrediction.confidenceIntervalPercentiles = undefined;
         }
 
-        console.log(`Successfully parsed ${tf} BTC prediction.`);
+        console.log(`Successfully parsed ${tf} BTC prediction. Parsed Price: ${parsedPrediction.price}`);
         return parsedPrediction;
       } catch (fetchError) {
         console.error(
-          `❌ Error fetching prediction for timeframe ${tf}:`,
+          `❌ Error fetching/parsing prediction for timeframe ${tf}:`,
           fetchError,
         );
         // Re-throw to be caught by the outer Promise.all catch block
         // Attach timeframe info for better context in the final error message
         throw new Error(
-          `Failed for timeframe ${tf}: ${
-            fetchError instanceof Error ? fetchError.message : String(fetchError)
+          `Failed for timeframe ${tf}: ${fetchError instanceof Error ? fetchError.message : String(fetchError)
           }`,
         );
       }
@@ -173,14 +202,11 @@ export async function fetchAlloraPredictionsAction(
         isSuccess: false,
         message: combinedErrorMessage,
         error: combinedErrorMessage,
-        // Optionally return partial data if needed, but typically safer not to
-        // data: successfulPredictions.length > 0 ? successfulPredictions : undefined,
       };
     }
 
     // If all requested timeframes were processed successfully (or skipped)
     if (successfulPredictions.length === 0 && timeframes.length > 0) {
-      // This case might happen if all requested timeframes were unsupported or failed silently before parsing
       console.warn(
         "⚠️ fetchAlloraPredictionsAction completed but yielded no predictions.",
       );

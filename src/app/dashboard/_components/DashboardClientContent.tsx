@@ -23,7 +23,8 @@
  * - ./PositionTable: Component to display open positions.
  * - ./PredictionFeed: Component to display Allora predictions.
  * - ./AlloraStatusIndicator: Component to display Allora API status.
- * - Placeholder components (TradePanel, TradeLog) to be replaced later.
+ * - ./TradePanel: Component for staging trades.
+ * - Placeholder components (TradeLog) to be replaced later.
  * - @/lib/constants: Provides default settings values.
  *
  * @notes
@@ -54,25 +55,17 @@ import { DEFAULT_APP_SETTINGS } from "@/lib/constants";
 import StatusIndicator, { StatusType } from "@/components/ui/StatusIndicator";
 import AccountSummary from "./AccountSummary";
 import PositionTable from "./PositionTable";
-import PredictionFeed from "./PredictionFeed"; // Import the actual component
+import PredictionFeed from "./PredictionFeed";
 import AlloraStatusIndicator from "./AlloraStatusIndicator";
-// Placeholder components - will be imported properly in later steps
+import TradePanel from "./TradePanel"; // Import the actual TradePanel component
+
+// Placeholder components - TradeLog will be replaced later
 const TradeLogPlaceholder = ({ initialLogs, initialError }: { initialLogs: TradeLogEntry[] | null, initialError: string | null }) => (
   <div className="p-4 border rounded-lg bg-card text-card-foreground shadow-sm min-h-[150px]">
     <h3 className="font-semibold mb-2">Trade Log</h3>
     {initialError && <p className="text-destructive text-sm">Error loading: {initialError}</p>}
     <pre className="text-xs overflow-auto">{JSON.stringify(initialLogs, null, 2)}</pre>
     <p className="text-muted-foreground text-sm mt-2">(Placeholder - Full component in Step 26)</p>
-  </div>
-);
-const TradePanelPlaceholder = ({ selectedPrediction }: { selectedPrediction: AlloraPrediction | null }) => (
-  <div className="p-4 border rounded-lg bg-card text-card-foreground shadow-sm min-h-[200px]">
-    <h3 className="font-semibold mb-2">Trade Panel</h3>
-    <p className="text-sm mb-2">Selected Prediction:</p>
-    <pre className="text-xs overflow-auto bg-muted p-2 rounded min-h-[50px]">
-      {selectedPrediction ? JSON.stringify(selectedPrediction, null, 2) : "None selected"}
-    </pre>
-    <p className="text-muted-foreground text-sm mt-2">(Placeholder - Full component in Step 23)</p>
   </div>
 );
 
@@ -146,14 +139,16 @@ export default function DashboardClientContent({
   const currentAccountInfoError = accountInfo === null ? initialAccountError : accountInfoError;
   const currentAccountInfo = accountInfo ?? initialAccountInfo; // Prefer fresh data, fallback to initial
 
-  return (
+  // Ensure consistent initial render
+  const content = (
     <div className="space-y-6">
       <div className="flex justify-between items-center mb-4">
         <h2 className="text-2xl font-semibold">Dashboard</h2>
         {/* Status Indicators */}
         <div className="flex space-x-4">
-          <AlloraStatusIndicator />
+          <AlloraStatusIndicator key="allora-status" />
           <StatusIndicator
+            key="hyperliquid-status"
             status={getHyperliquidStatus()}
             serviceName="Hyperliquid"
             className="text-xs"
@@ -161,13 +156,13 @@ export default function DashboardClientContent({
         </div>
       </div>
 
-
       {/* Grid layout for dashboard sections */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left/Main Column */}
         <div className="lg:col-span-2 space-y-6">
           {/* Account Summary Component */}
           <AccountSummary
+            key="account-summary"
             currentAccountInfo={currentAccountInfo}
             isLoading={isLoadingAccountInfo}
             error={currentAccountInfoError}
@@ -175,12 +170,14 @@ export default function DashboardClientContent({
 
           {/* Position Table Component */}
           <PositionTable
-            initialPositions={initialPositions} // Pass initial positions
-            initialError={initialPositionsError} // Pass initial error for positions
+            key="position-table"
+            initialPositions={initialPositions}
+            initialError={initialPositionsError}
           />
 
           {/* Trade Log Display Component (Placeholder) */}
           <TradeLogPlaceholder
+            key="trade-log"
             initialLogs={initialLogs}
             initialError={initialLogsError}
           />
@@ -190,17 +187,21 @@ export default function DashboardClientContent({
         <div className="space-y-6">
           {/* Prediction Feed Component */}
           <PredictionFeed
+            key="prediction-feed"
             initialPredictions={initialPredictions}
             initialError={initialPredictionsError}
-            onSelectPrediction={handleSelectPrediction} // Pass down the callback
+            onSelectPrediction={handleSelectPrediction}
           />
 
-          {/* Trade Panel Component (Placeholder) */}
-          <TradePanelPlaceholder
-            selectedPrediction={selectedPrediction} // Pass down selected prediction state
+          {/* Trade Panel Component */}
+          <TradePanel
+            key="trade-panel"
+            selectedPrediction={selectedPrediction}
           />
         </div>
       </div>
     </div>
   );
+
+  return content;
 }

@@ -41,7 +41,7 @@ function getClientConfig(): AlloraClientConfig {
 
   // Determine chain slug (defaulting to testnet for now)
   // Potentially add an env var like ALLORA_USE_MAINNET later if needed
-  const chainSlug = ChainSlug.TESTNET;
+  const chainSlug = ChainSlug.MAINNET;
 
   // Optional: Allow overriding base API URL via env var if needed
   // const baseAPIUrl = process.env.ALLORA_API_ENDPOINT;
@@ -76,8 +76,7 @@ export function setupAlloraClient(): AlloraAPIClient {
   } catch (error) {
     console.error("❌ Failed to initialize Allora API Client:", error);
     throw new Error(
-      `Failed to initialize Allora API Client: ${
-        error instanceof Error ? error.message : "Unknown error"
+      `Failed to initialize Allora API Client: ${error instanceof Error ? error.message : "Unknown error"
       }`,
     );
   }
