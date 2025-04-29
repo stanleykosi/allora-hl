@@ -27,9 +27,11 @@ export * from "./template-types";
 // Export types related to Trade Logs
 export * from "./log-types";
 
+// Export types related to Application Settings
+export * from "./settings-types";
+
 // Future exports for other type definitions will be added here, for example:
 // export * from './common-types';
-// export * from './settings-types';
 
 
 // Export generic JSX type definition file (if needed, can conflict with React's global JSX)
