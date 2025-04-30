@@ -216,7 +216,11 @@ const PositionTable: React.FC<PositionTableProps> = ({
           <CardDescription>
             Your current open positions on Hyperliquid.
             {error && currentPositions && (
-              <span className="text-red-600 ml-2">(Stale data due to error)</span>
+              <>
+                {currentPositions[0]?.time && new Date().getTime() - new Date(currentPositions[0].time).getTime() > 60000 && (
+                  <span className="text-red-600 ml-2">(Stale data due to error)</span>
+                )}
+              </>
             )}
           </CardDescription>
         </div>

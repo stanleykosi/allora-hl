@@ -155,7 +155,11 @@ const AccountSummary: React.FC<AccountSummaryProps> = ({
         <CardDescription>
           Overview of your Hyperliquid account balance and margin.
           {error && currentAccountInfo && (
-            <span className="text-red-600 ml-2">(Stale data due to error)</span>
+            <>
+              {currentAccountInfo.time && new Date().getTime() - new Date(currentAccountInfo.time).getTime() > 60000 && (
+                <span className="text-red-600 ml-2">(Stale data due to error)</span>
+              )}
+            </>
           )}
         </CardDescription>
       </CardHeader>

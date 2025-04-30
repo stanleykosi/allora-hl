@@ -209,7 +209,11 @@ const PredictionFeed: React.FC<PredictionFeedProps> = ({
           Latest price predictions fetched from the Allora network. Click to
           select.
           {error && currentPredictions.length > 0 && (
-            <span className="text-red-600 ml-2">(Stale data due to error)</span>
+            <>
+              {currentPredictions[0]?.timestamp && new Date().getTime() - new Date(currentPredictions[0].timestamp).getTime() > 60000 && (
+                <span className="text-red-600 ml-2">(Stale data due to error)</span>
+              )}
+            </>
           )}
         </CardDescription>
       </CardHeader>
