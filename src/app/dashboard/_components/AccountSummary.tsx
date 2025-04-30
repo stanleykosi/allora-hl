@@ -60,6 +60,43 @@ const AccountSummary: React.FC<AccountSummaryProps> = ({
   isLoading,
   error,
 }): React.ReactElement => {
+  // Safely extract values with default fallbacks
+  const getAccountValue = () => {
+    try {
+      return currentAccountInfo?.marginSummary?.accountValue || "0";
+    } catch (e) {
+      console.error("Error getting account value:", e);
+      return "0";
+    }
+  };
+
+  const getWithdrawable = () => {
+    try {
+      return currentAccountInfo?.withdrawable || "0";
+    } catch (e) {
+      console.error("Error getting withdrawable:", e);
+      return "0";
+    }
+  };
+
+  const getMarginUsed = () => {
+    try {
+      return currentAccountInfo?.marginSummary?.totalMarginUsed || "0";
+    } catch (e) {
+      console.error("Error getting margin used:", e);
+      return "0";
+    }
+  };
+
+  const getPositionValue = () => {
+    try {
+      return currentAccountInfo?.marginSummary?.totalNtlPos || "0";
+    } catch (e) {
+      console.error("Error getting position value:", e);
+      return "0";
+    }
+  };
+
   // Determine content based on loading, error, and data states
   const renderContent = () => {
     // Always render a div with consistent structure
@@ -84,25 +121,25 @@ const AccountSummary: React.FC<AccountSummaryProps> = ({
             <div>
               <p className="text-muted-foreground">Total Equity</p>
               <p className="font-semibold text-lg">
-                {formatCurrency(currentAccountInfo?.marginSummary?.accountValue ?? '0')}
+                {formatCurrency(getAccountValue())}
               </p>
             </div>
             <div>
               <p className="text-muted-foreground">Available Margin</p>
               <p className="font-semibold text-lg">
-                {formatCurrency(currentAccountInfo?.withdrawable ?? '0')}
+                {formatCurrency(getWithdrawable())}
               </p>
             </div>
             <div>
               <p className="text-muted-foreground">Margin Used</p>
               <p className="font-semibold">
-                {formatCurrency(currentAccountInfo?.marginSummary?.totalMarginUsed ?? '0')}
+                {formatCurrency(getMarginUsed())}
               </p>
             </div>
             <div>
               <p className="text-muted-foreground">Total Position Value</p>
               <p className="font-semibold">
-                {formatCurrency(currentAccountInfo?.marginSummary?.totalNtlPos ?? '0')}
+                {formatCurrency(getPositionValue())}
               </p>
             </div>
           </div>
@@ -117,9 +154,6 @@ const AccountSummary: React.FC<AccountSummaryProps> = ({
         <CardTitle>Account Summary</CardTitle>
         <CardDescription>
           Overview of your Hyperliquid account balance and margin.
-          {isLoading && currentAccountInfo && (
-            <span className="text-yellow-600 ml-2">(Updating...)</span>
-          )}
           {error && currentAccountInfo && (
             <span className="text-red-600 ml-2">(Stale data due to error)</span>
           )}

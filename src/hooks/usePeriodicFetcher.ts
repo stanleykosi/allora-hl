@@ -72,8 +72,20 @@ export function usePeriodicFetcher<T>(
     setIsLoading(true);
     setError(null); // Clear previous error
 
+    // Set a timeout to prevent the loading state from getting stuck
+    const timeoutId = setTimeout(() => {
+      if (isMountedRef.current && isLoading) {
+        console.error('Fetch timeout: Taking too long to complete');
+        setIsLoading(false);
+        setError('Request timed out. The server took too long to respond.');
+      }
+    }, 15000); // 15 second timeout
+
     try {
       const result = await fetcherFnRef.current(); // Use the ref to call the function
+
+      // Clear the timeout since the fetch completed
+      clearTimeout(timeoutId);
 
       // Only update state if the component is still mounted
       if (isMountedRef.current) {
@@ -84,18 +96,42 @@ export function usePeriodicFetcher<T>(
         } else {
           setError(result.message);
           console.error('Fetch failed:', result.message, 'Error details:', result.error);
-          // Optionally keep stale data on error, or set to null:
-          // setData(null);
+          // Do NOT clear data on normal errors to prevent flashing/disruption
+          // Only clear data for specific critical errors
+          if (result.message && (
+            result.message.includes("timeout") || 
+            result.message.includes("unauthorized") ||
+            result.message.includes("invalid key") ||
+            result.message.includes("authentication")
+          )) {
+            console.warn("Critical error detected - clearing stale data");
+            setData(null);
+          }
         }
       }
     } catch (err: unknown) {
+      // Clear the timeout since the fetch completed (with an error)
+      clearTimeout(timeoutId);
+
       console.error('Fetch exception:', err);
       if (isMountedRef.current) {
-        setError(err instanceof Error ? err.message : 'An unexpected error occurred during fetch.');
-        // Optionally clear data on exception:
-        // setData(null);
+        const errorMessage = err instanceof Error ? err.message : 'An unexpected error occurred during fetch.';
+        setError(errorMessage);
+        
+        // Only clear data for network errors or serious exceptions
+        if (err instanceof Error && (
+          errorMessage.includes("network") || 
+          errorMessage.includes("timeout") || 
+          errorMessage.includes("fetch")
+        )) {
+          console.warn("Network error detected - clearing stale data");
+          setData(null);
+        }
       }
     } finally {
+      // Clear the timeout since the fetch completed
+      clearTimeout(timeoutId);
+
       // Only set loading false if mounted
       if (isMountedRef.current) {
         setIsLoading(false);

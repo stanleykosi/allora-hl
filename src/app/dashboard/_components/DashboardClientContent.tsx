@@ -16,6 +16,7 @@
  * - @/hooks/usePeriodicFetcher: Custom hook for periodic data fetching.
  * - @/hooks/useLocalStorage: Custom hook for accessing settings from localStorage.
  * - @/actions/hyperliquid-actions: Server Action for fetching Hyperliquid account info and positions.
+ * - @/actions/allora-actions: Server Action for fetching Allora predictions.
  * - @/components/ui/StatusIndicator: Shared component for displaying status.
  * - @/components/ui/LoadingSpinner: Shared component for loading indication.
  * - @/components/ui/ErrorDisplay: Shared component for displaying errors.
@@ -23,6 +24,7 @@
  * - ./PositionTable: Component to display open positions.
  * - ./PredictionFeed: Component to display Allora predictions.
  * - ./AlloraStatusIndicator: Component to display Allora API status.
+ * - ./HyperliquidStatusIndicator: Component to display Hyperliquid API status.
  * - ./TradePanel: Component for staging trades.
  * - Placeholder components (TradeLog) to be replaced later.
  * - @/lib/constants: Provides default settings values.
@@ -37,7 +39,7 @@
  */
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useCallback, useRef } from "react";
 import type {
   HyperliquidAccountInfo,
   HyperliquidPosition,
@@ -49,15 +51,18 @@ import { usePeriodicFetcher } from "@/hooks/usePeriodicFetcher";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
 import {
   fetchHyperliquidAccountInfoAction,
-  fetchHyperliquidPositionsAction, // Import action for positions
+  fetchHyperliquidPositionsAction,
 } from "@/actions/hyperliquid-actions";
+import { fetchAlloraPredictionsAction } from "@/actions/allora-actions";
 import { DEFAULT_APP_SETTINGS } from "@/lib/constants";
-import StatusIndicator, { StatusType } from "@/components/ui/StatusIndicator";
 import AccountSummary from "./AccountSummary";
 import PositionTable from "./PositionTable";
 import PredictionFeed from "./PredictionFeed";
 import AlloraStatusIndicator from "./AlloraStatusIndicator";
-import TradePanel from "./TradePanel"; // Import the actual TradePanel component
+import HyperliquidStatusIndicator from "./HyperliquidStatusIndicator";
+import TradePanel from "./TradePanel";
+import { Button } from "@/components/ui/button";
+import { RefreshCw } from "lucide-react";
 
 // Placeholder components - TradeLog will be replaced later
 const TradeLogPlaceholder = ({ initialLogs, initialError }: { initialLogs: TradeLogEntry[] | null, initialError: string | null }) => (
@@ -121,17 +126,71 @@ export default function DashboardClientContent({
     initialAccountInfo
   );
 
-  // Determine Hyperliquid API status based on Account Info fetch
-  const getHyperliquidStatus = (): StatusType => {
-    if (isLoadingAccountInfo) return 'connecting';
-    if (accountInfoError) return 'error';
-    if (accountInfo) return 'connected';
-    return 'idle';
-  };
+  // Fetch positions data
+  const {
+    data: positions,
+    isLoading: isLoadingPositions,
+    error: positionsError,
+    refresh: refreshPositions,
+  } = usePeriodicFetcher(
+    fetchHyperliquidPositionsAction,
+    settings.accountRefreshInterval,
+    initialPositions
+  );
+
+  // Fetch predictions data
+  const {
+    data: predictions,
+    isLoading: isLoadingPredictions,
+    error: predictionsError,
+    refresh: refreshPredictions,
+  } = usePeriodicFetcher(
+    fetchAlloraPredictionsAction,
+    settings.predictionRefreshInterval,
+    initialPredictions
+  );
+
+  // Function to refresh all data
+  const refreshAllData = useCallback(async () => {
+    console.log('Manual refresh of all data triggered');
+
+    try {
+      // Set up refreshes to happen in parallel
+      await Promise.all([
+        refreshAccountInfo(),
+        refreshPositions(),
+        refreshPredictions(),
+      ]);
+
+      // Also refresh mark prices if we have positions
+      if (positions && positions.length > 0) {
+        const uniqueAssets = new Set<string>();
+        positions.forEach(position => {
+          try {
+            // Extract asset name (assuming you have a getAssetName function somewhere)
+            const assetName = position.position?.coin;
+            if (assetName) {
+              uniqueAssets.add(assetName);
+            }
+          } catch (e) {
+            console.error("Error getting asset name:", e);
+          }
+        });
+
+        // This will trigger re-fetching of prices in PositionTable's effect
+        console.log('Refreshed mark prices for assets:', Array.from(uniqueAssets));
+      }
+
+      console.log('All data refreshed');
+    } catch (error) {
+      console.error('Error refreshing data:', error);
+      // If the refresh fails, refresh the page as a fallback
+      window.location.reload();
+    }
+  }, [refreshAccountInfo, refreshPositions, refreshPredictions, positions]);
 
   // Callback function for the PredictionFeed to update the selected prediction
   const handleSelectPrediction = (prediction: AlloraPrediction | null) => {
-    console.log("Prediction selected in DashboardClientContent:", prediction);
     setSelectedPrediction(prediction);
   };
 
@@ -145,14 +204,17 @@ export default function DashboardClientContent({
       <div className="flex justify-between items-center mb-4">
         <h2 className="text-2xl font-semibold">Dashboard</h2>
         {/* Status Indicators */}
-        <div className="flex space-x-4">
+        <div className="flex items-center space-x-4">
           <AlloraStatusIndicator key="allora-status" />
-          <StatusIndicator
-            key="hyperliquid-status"
-            status={getHyperliquidStatus()}
-            serviceName="Hyperliquid"
-            className="text-xs"
-          />
+          <HyperliquidStatusIndicator key="hyperliquid-status" />
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={refreshAllData}
+          >
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Refresh All
+          </Button>
         </div>
       </div>
 

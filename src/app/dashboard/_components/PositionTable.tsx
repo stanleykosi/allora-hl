@@ -36,7 +36,7 @@ import React from "react";
 import type { HyperliquidPosition, AppSettings } from "@/types";
 import { usePeriodicFetcher } from "@/hooks/usePeriodicFetcher";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
-import { fetchHyperliquidPositionsAction } from "@/actions/hyperliquid-actions";
+import { fetchHyperliquidPositionsAction, fetchCurrentPriceAction } from "@/actions/hyperliquid-actions";
 import { formatCurrency, formatNumber } from "@/lib/formatting";
 import { DEFAULT_APP_SETTINGS, BTC_ASSET_INDEX } from "@/lib/constants"; // Assuming BTC is index 0 for now
 import {
@@ -45,6 +45,7 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  CardFooter,
 } from "@/components/ui/card";
 import {
   Table,
@@ -58,6 +59,8 @@ import {
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
 import ErrorDisplay from "@/components/ui/ErrorDisplay";
 import clsx from "clsx";
+import { Button } from "@/components/ui/button";
+import { RefreshCw } from "lucide-react";
 
 /**
  * Props for the PositionTable component.
@@ -84,6 +87,10 @@ const PositionTable: React.FC<PositionTableProps> = ({
     DEFAULT_APP_SETTINGS,
   );
 
+  // State to store current mark prices
+  const [markPrices, setMarkPrices] = React.useState<Record<string, number>>({});
+  const [isLoadingPrices, setIsLoadingPrices] = React.useState<boolean>(false);
+
   // Fetch positions periodically using the custom hook
   const {
     data: positions,
@@ -101,6 +108,47 @@ const PositionTable: React.FC<PositionTableProps> = ({
   // Prefer fresh data from the fetcher, fallback to initial data if fetcher hasn't populated yet
   const currentPositions = positions ?? initialPositions;
 
+  // Helper function to get mark price for an asset
+  const getMarkPrice = async (assetName: string) => {
+    try {
+      setIsLoadingPrices(true);
+      const result = await fetchCurrentPriceAction(undefined, assetName);
+      if (result.isSuccess && result.data) {
+        setMarkPrices(prev => ({
+          ...prev,
+          [assetName]: parseFloat(result.data.price)
+        }));
+      }
+    } catch (e) {
+      console.error(`Error fetching mark price for ${assetName}:`, e);
+    } finally {
+      setIsLoadingPrices(false);
+    }
+  };
+
+  // Fetch mark prices for each unique asset when positions change
+  React.useEffect(() => {
+    if (!currentPositions || currentPositions.length === 0) return;
+
+    // Get unique assets from positions
+    const uniqueAssets = new Set<string>();
+    currentPositions.forEach(position => {
+      try {
+        const assetName = getAssetName(position);
+        if (assetName && assetName !== "Unknown Asset" && assetName !== "Error") {
+          uniqueAssets.add(assetName);
+        }
+      } catch (e) {
+        console.error("Error getting asset name:", e);
+      }
+    });
+
+    // Fetch mark price for each unique asset
+    uniqueAssets.forEach(assetName => {
+      getMarkPrice(assetName);
+    });
+  }, [currentPositions]);
+
   // Helper function to determine PnL color
   const getPnlColor = (pnlValue: number): string => {
     if (pnlValue > 0) return "text-green-500";
@@ -108,29 +156,70 @@ const PositionTable: React.FC<PositionTableProps> = ({
     return "text-muted-foreground"; // Neutral color for zero PnL
   };
 
-  // Helper function to get asset name (placeholder logic)
+  // Helper function to get asset name with improved error handling
   const getAssetName = (position: HyperliquidPosition): string => {
-    return position.position.coin || `Asset ${position.position.coin}`;
+    try {
+      // Try to extract the coin name from different possible structures
+      if (position.position?.coin) {
+        return position.position.coin;
+      } else if (typeof position.position === 'object' && 'asset' in position.position) {
+        // @ts-ignore - Handling potential different structure
+        return position.position.asset;
+      } else if (typeof position === 'object' && 'coin' in position) {
+        // @ts-ignore - Handling potential different structure
+        return position.coin;
+      } else {
+        return "Unknown Asset";
+      }
+    } catch (e) {
+      console.error("Error getting asset name:", e);
+      return "Error";
+    }
   };
 
-  // Filter for positions with non-zero size
-  const openPositions = currentPositions?.filter(
-    (p) => parseFloat(p.position.szi) !== 0,
-  ) ?? [];
+  // Filter for positions with non-zero size with improved error handling
+  const openPositions = React.useMemo(() => {
+    if (!currentPositions) return [];
+
+    try {
+      // Debug: Log the entire positions structure to inspect
+      console.log("Debug - Full positions structure:", JSON.stringify(currentPositions, null, 2));
+
+      return currentPositions.filter((p) => {
+        // Check for required properties
+        if (!p || !p.position) {
+          return false;
+        }
+
+        // Try to extract size from different possible structures
+        let size = 0;
+        if (p.position.szi !== undefined) {
+          size = parseFloat(p.position.szi || "0");
+        } else if (typeof p.position === 'object' && 'size' in p.position) {
+          // @ts-ignore - Handling potential different structure
+          size = parseFloat(p.position.size || "0");
+        }
+
+        return size !== 0;
+      });
+    } catch (e) {
+      console.error("Error filtering positions:", e);
+      return [];
+    }
+  }, [currentPositions]);
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Open Positions</CardTitle>
-        <CardDescription>
-          Your current open positions on Hyperliquid.
-          {isLoading && currentPositions && (
-            <span className="text-yellow-600 ml-2">(Updating...)</span>
-          )}
-          {error && currentPositions && (
-            <span className="text-red-600 ml-2">(Stale data due to error)</span>
-          )}
-        </CardDescription>
+        <div>
+          <CardTitle>Open Positions</CardTitle>
+          <CardDescription>
+            Your current open positions on Hyperliquid.
+            {error && currentPositions && (
+              <span className="text-red-600 ml-2">(Stale data due to error)</span>
+            )}
+          </CardDescription>
+        </div>
       </CardHeader>
       <CardContent>
         <div className="min-h-[200px]">
@@ -163,27 +252,70 @@ const PositionTable: React.FC<PositionTableProps> = ({
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {openPositions.map((position) => {
-                    const assetName = getAssetName(position);
-                    const size = parseFloat(position.position.szi);
-                    const entryPrice = parseFloat(position.position.entryPx);
-                    const markPrice = parseFloat(position.position.markPx);
-                    const unrealizedPnl = parseFloat(position.position.unrealizedPnl);
+                  {openPositions.map((position, idx) => {
+                    try {
+                      // Debug: Log the individual position structure
+                      console.log(`Debug - Position ${idx}:`, position);
 
-                    return (
-                      <TableRow key={position.position.coin}>
-                        <TableCell>{assetName}</TableCell>
-                        <TableCell>{formatNumber(size)}</TableCell>
-                        <TableCell>{formatCurrency(entryPrice)}</TableCell>
-                        <TableCell>{formatCurrency(markPrice)}</TableCell>
-                        <TableCell className={clsx("text-right", getPnlColor(unrealizedPnl))}>
-                          {formatCurrency(unrealizedPnl)}
-                        </TableCell>
-                      </TableRow>
-                    );
+                      const assetName = getAssetName(position);
+                      // Extract values with fallbacks
+                      const size = parseFloat(position.position?.szi || "0");
+                      const entryPrice = parseFloat(position.position?.entryPx || "0");
+                      // Try to get mark price from our dynamic fetching first, fall back to position data
+                      const isMarkPriceDynamic = !!markPrices[assetName];
+                      const markPrice = markPrices[assetName] || parseFloat(position.position?.markPx || "0");
+                      // Get unrealized PnL from the position data
+                      const reportedUnrealizedPnl = parseFloat(position.position?.unrealizedPnl || "0");
+
+                      // Calculate our own unrealized PnL if we have mark prices
+                      let calculatedUnrealizedPnl = reportedUnrealizedPnl;
+                      if (markPrices[assetName] && entryPrice && size) {
+                        // Basic PnL calculation: (current price - entry price) * size
+                        // Positive size means long, negative means short
+                        calculatedUnrealizedPnl = (markPrice - entryPrice) * size;
+                      }
+
+                      // Use calculated PnL if available, otherwise use reported PnL
+                      const unrealizedPnl = markPrices[assetName] ? calculatedUnrealizedPnl : reportedUnrealizedPnl;
+
+                      // Debug: Log the extracted values
+                      console.log(`Debug - Extracted values for ${assetName}:`, {
+                        size,
+                        entryPrice,
+                        markPrice,
+                        unrealizedPnl
+                      });
+
+                      return (
+                        <TableRow key={`${assetName}-${idx}`}>
+                          <TableCell>{assetName}</TableCell>
+                          <TableCell>{formatNumber(size)}</TableCell>
+                          <TableCell>{formatCurrency(entryPrice)}</TableCell>
+                          <TableCell>
+                            {formatCurrency(markPrice)}
+                            {isMarkPriceDynamic && (
+                              <span className="ml-2 text-xs text-green-500">•</span>
+                            )}
+                          </TableCell>
+                          <TableCell className={clsx("text-right", getPnlColor(unrealizedPnl))}>
+                            {formatCurrency(unrealizedPnl)}
+                            {isMarkPriceDynamic && (
+                              <span className="ml-2 text-xs text-green-500">•</span>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    } catch (e) {
+                      console.error("Error rendering position:", e, position);
+                      return null; // Skip this position on error
+                    }
                   })}
                 </TableBody>
               </Table>
+              <div className="mt-3 text-xs text-muted-foreground flex items-center">
+                <span className="text-green-500 mr-1">•</span>
+                <span>Indicates values calculated with real-time mark prices</span>
+              </div>
             </div>
           )}
         </div>

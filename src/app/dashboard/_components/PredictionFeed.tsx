@@ -208,9 +208,6 @@ const PredictionFeed: React.FC<PredictionFeedProps> = ({
         <CardDescription>
           Latest price predictions fetched from the Allora network. Click to
           select.
-          {isLoading && currentPredictions.length > 0 && (
-            <span className="text-yellow-600 ml-2">(Updating...)</span>
-          )}
           {error && currentPredictions.length > 0 && (
             <span className="text-red-600 ml-2">(Stale data due to error)</span>
           )}

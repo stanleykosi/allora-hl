@@ -1,7 +1,7 @@
 /**
  * @description
- * Client component responsible for displaying the connection status of the Allora API.
- * It periodically attempts to fetch predictions using `fetchAlloraPredictionsAction`
+ * Client component responsible for displaying the connection status of the Hyperliquid API.
+ * It periodically attempts to fetch account info using `fetchHyperliquidAccountInfoAction`
  * and updates the status displayed by the `StatusIndicator` component based on
  * the success or failure of the fetch attempts.
  *
@@ -9,13 +9,13 @@
  * - react: For component structure and hooks (`useState`, `useEffect`, `useRef`).
  * - @/hooks/usePeriodicFetcher: Custom hook for periodic data fetching.
  * - @/hooks/useLocalStorage: Custom hook for accessing settings from localStorage.
- * - @/actions/allora-actions: Server Action to fetch Allora predictions.
+ * - @/actions/hyperliquid-actions: Server Action to fetch Hyperliquid account info.
  * - @/components/ui/StatusIndicator: Reusable component to display status visually.
  * - @/lib/constants: Provides default settings values.
- * - @/types: Type definitions (AppSettings, AlloraPrediction, ActionState).
+ * - @/types: Type definitions (AppSettings, HyperliquidAccountInfo, ActionState).
  *
  * @notes
- * - Fetches predictions periodically based on the interval configured in settings.
+ * - Fetches account info periodically based on the interval configured in settings.
  * - Maps the state (`isLoading`, `error`) from `usePeriodicFetcher` to the `StatusType`
  * required by `StatusIndicator` ('connecting', 'connected', 'error', 'idle').
  */
@@ -24,12 +24,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { usePeriodicFetcher } from '@/hooks/usePeriodicFetcher';
 import { useLocalStorage } from '@/hooks/useLocalStorage';
-import { fetchAlloraPredictionsAction } from '@/actions/allora-actions';
+import { fetchHyperliquidAccountInfoAction } from '@/actions/hyperliquid-actions';
 import StatusIndicator, { StatusType } from '@/components/ui/StatusIndicator';
 import { DEFAULT_APP_SETTINGS } from '@/lib/constants';
 import type { AppSettings } from '@/types';
 
-const AlloraStatusIndicator: React.FC = () => {
+const HyperliquidStatusIndicator: React.FC = () => {
   // Get app settings from local storage, defaulting if not found
   const [settings] = useLocalStorage<AppSettings>(
     'alloraHyperliquidApp_settings',
@@ -41,11 +41,11 @@ const AlloraStatusIndicator: React.FC = () => {
   // Track if we've ever successfully loaded data
   const hasLoadedDataRef = useRef<boolean>(false);
 
-  // Use the periodic fetcher hook to attempt fetching predictions
-  // We don't need the actual prediction data here, just the fetch status.
+  // Use the periodic fetcher hook to attempt fetching account info
+  // We don't need the actual account data here, just the fetch status.
   const { isLoading, error, data } = usePeriodicFetcher(
-    fetchAlloraPredictionsAction, // The server action to call
-    settings.predictionRefreshInterval, // Interval from settings
+    fetchHyperliquidAccountInfoAction, // The server action to call
+    settings.accountRefreshInterval, // Interval from settings
     null // No initial data needed for status check
   );
 
@@ -87,10 +87,10 @@ const AlloraStatusIndicator: React.FC = () => {
   return (
     <StatusIndicator
       status={indicatorStatus}
-      serviceName="Allora"
+      serviceName="Hyperliquid"
       className="text-xs" // Example: smaller text size
     />
   );
 };
 
-export default AlloraStatusIndicator;
+export default HyperliquidStatusIndicator; 

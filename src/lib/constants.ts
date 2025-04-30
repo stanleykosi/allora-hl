@@ -24,9 +24,29 @@ export const DEFAULT_APP_SETTINGS = {
   tradeSwitchEnabled: false, // Default master trade switch to disabled for safety
 };
 
-// Asset Constants (Example - Needs confirmation)
-/** Hyperliquid Asset Index for BTC perpetuals (Needs confirmation from Hyperliquid API/Meta). */
-export const BTC_ASSET_INDEX = 0; // Assuming BTC is index 0, CONFIRM THIS
+// Asset Constants
+/**
+ * Asset indices by environment 
+ * Maps asset names to their indices in different environments
+ * Used to dynamically select the correct asset index based on the current environment
+ */
+export const ASSET_INDICES = {
+  // Mainnet asset indices
+  mainnet: {
+    BTC: 0,
+    ETH: 1,
+    // Add more mainnet assets as needed
+  },
+  // Testnet asset indices (may differ from mainnet)
+  testnet: {
+    BTC: 0, // Confirm and update based on testnet meta data
+    ETH: 1, // Confirm and update based on testnet meta data
+    // Add more testnet assets as needed
+  }
+};
+
+/** Default asset index for BTC - Will be dynamically determined at runtime */
+export const BTC_ASSET_INDEX = 0;
 /** Symbol for Bitcoin perpetuals used in UI and potentially logging. */
 export const BTC_SYMBOL_UI = "BTC-PERP";
 

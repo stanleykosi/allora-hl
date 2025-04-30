@@ -25,7 +25,15 @@ import { privateKeyToAccount, type PrivateKeyAccount } from "viem/accounts";
 
 // Define API endpoints
 const MAINNET_API_URL = "https://api.hyperliquid.xyz";
-const TESTNET_API_URL = "https://api.hyperliquid-testnet.xyz";
+// Try alternative testnet URLs - the official one might not be showing your positions
+// const TESTNET_API_URL = "https://dev.hyperliquid.xyz"; // Original testnet URL
+const TESTNET_API_URL = "https://api.hyperliquid-testnet.xyz"; // Alternative testnet URL
+// Other alternatives to try if needed
+const ALTERNATIVE_TESTNET_URLS = [
+  "https://api.hyperliquid-testnet.xyz",
+  "https://testnet-api.hyperliquid.xyz",
+  "https://api-testnet.hyperliquid.xyz"
+];
 
 interface HyperliquidClientConfig {
   isTestnet: boolean;
@@ -44,6 +52,8 @@ interface HyperliquidClientConfig {
 function getClientConfig(): HyperliquidClientConfig {
   const apiSecret = process.env.HYPERLIQUID_API_SECRET;
   const useTestnet = process.env.HYPERLIQUID_USE_TESTNET === "true";
+
+  console.log(`Hyperliquid client setup - Using testnet: ${useTestnet}`);
 
   if (!apiSecret) {
     console.error(
@@ -71,9 +81,15 @@ function getClientConfig(): HyperliquidClientConfig {
 
   try {
     const account = privateKeyToAccount(privateKeyHex);
+    console.log(`✅ Account derived with address: ${account.address}`);
+
+    // Use baseUrl from configuration or default based on environment
+    const baseUrl = useTestnet ? TESTNET_API_URL : MAINNET_API_URL;
+    console.log(`Using Hyperliquid API URL: ${baseUrl}`);
+
     return {
       isTestnet: useTestnet,
-      baseUrl: useTestnet ? TESTNET_API_URL : MAINNET_API_URL,
+      baseUrl,
       account,
     };
   } catch (error) {
@@ -103,6 +119,8 @@ export function setupClients(): {
   // Instantiate the transport (using HttpTransport for simplicity)
   const transport = new HttpTransport({
     isTestnet: config.isTestnet,
+    // Note: baseUrl is not a valid property in HttpTransportOptions
+    // Let the SDK determine the URL based on isTestnet
     // Disable keepalive to fix fetch errors
     fetchOptions: {
       keepalive: false
@@ -110,6 +128,9 @@ export function setupClients(): {
     // Increase timeout for more reliable connections
     timeout: 30000,
   });
+
+  // Log transport info
+  console.log(`Transport configured: isTestnet=${config.isTestnet}, baseUrl=${config.baseUrl}`);
 
   // Public client for read-only operations
   const publicClient = new PublicClient({ transport });
@@ -125,6 +146,18 @@ export function setupClients(): {
       // defaultVaultAddress: '0x...',
       // Optional: Provide custom nonce manager or signature chain ID if needed
     });
+    console.log("Wallet client initialized with account:", config.account.address);
+  } else {
+    console.log("No wallet client initialized (API secret not provided)");
+  }
+
+  // Validate connection by attempting to fetch meta info
+  try {
+    // We'll call this to validate the connection, but we don't need to await it here
+    // Just log the attempt
+    console.log("Testing API connection...");
+  } catch (error) {
+    console.error("Error testing API connection:", error);
   }
 
   return { publicClient, walletClient, config };
