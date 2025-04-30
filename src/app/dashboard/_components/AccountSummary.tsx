@@ -37,6 +37,13 @@ import {
 } from "@/components/ui/card";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
 import ErrorDisplay from "@/components/ui/ErrorDisplay";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { InfoIcon } from "lucide-react";
 
 /**
  * Props for the AccountSummary component.
@@ -72,7 +79,15 @@ const AccountSummary: React.FC<AccountSummaryProps> = ({
 
   const getWithdrawable = () => {
     try {
-      return currentAccountInfo?.withdrawable || "0";
+      // Check if the withdrawable field exists, and if not, try to use marginSummary.withdrawable
+      if (currentAccountInfo?.withdrawable !== undefined) {
+        return currentAccountInfo.withdrawable || "0";
+      } else if (currentAccountInfo?.marginSummary?.withdrawable !== undefined) {
+        return currentAccountInfo.marginSummary.withdrawable || "0";
+      } else {
+        console.warn("Available margin field not found in API response");
+        return "0";
+      }
     } catch (e) {
       console.error("Error getting withdrawable:", e);
       return "0";
@@ -125,7 +140,23 @@ const AccountSummary: React.FC<AccountSummaryProps> = ({
               </p>
             </div>
             <div>
-              <p className="text-muted-foreground">Available Margin</p>
+              <div className="flex items-center gap-1">
+                <p className="text-muted-foreground">Available Margin</p>
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <InfoIcon className="h-4 w-4 text-muted-foreground" />
+                    </TooltipTrigger>
+                    <TooltipContent className="max-w-[300px]">
+                      <p>
+                        Available margin can be zero when all equity is being used to maintain open positions. 
+                        This is normal with leveraged positions. To free up margin, you can either 
+                        deposit more funds or reduce your position size.
+                      </p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </div>
               <p className="font-semibold text-lg">
                 {formatCurrency(getWithdrawable())}
               </p>

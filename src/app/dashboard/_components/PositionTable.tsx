@@ -112,7 +112,7 @@ const PositionTable: React.FC<PositionTableProps> = ({
   const getMarkPrice = async (assetName: string) => {
     try {
       setIsLoadingPrices(true);
-      const result = await fetchCurrentPriceAction(undefined, assetName);
+      const result = await fetchCurrentPriceAction(assetName);
       if (result.isSuccess && result.data) {
         setMarkPrices(prev => ({
           ...prev,
