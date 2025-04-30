@@ -350,7 +350,7 @@ export async function placeMarketOrderAction(params: {
       console.error("Hyperliquid WalletClient not configured. API Secret is required for trading.");
       return {
         isSuccess: false,
-        message: "Hyperliquid WalletClient not configured. Check API secret.",
+        message: "Hyperliquid API secret not configured or invalid. Please check your environment variables.",
         error: "Wallet client setup failed.",
       };
     }
@@ -360,6 +360,25 @@ export async function placeMarketOrderAction(params: {
     const assetIndex = assetDetails.index;
     const szDecimals = assetDetails.szDecimals;
     console.log(`Using asset index ${assetIndex} with ${szDecimals} size decimals for ${assetName}`);
+
+    // Validate size is greater than zero
+    if (size <= 0) {
+      return {
+        isSuccess: false,
+        message: "Order size must be greater than zero.",
+        error: "Invalid order size.",
+      };
+    }
+
+    // Add minimum size check - many exchanges require at least 0.001 BTC or more
+    const MINIMUM_ORDER_SIZE = 0.001;
+    if (size < MINIMUM_ORDER_SIZE) {
+      return {
+        isSuccess: false,
+        message: `Order size (${size} ${assetName}) is below the minimum required (${MINIMUM_ORDER_SIZE} ${assetName}).`,
+        error: "Order size too small.",
+      };
+    }
 
     // Fetch the current price to set the limit boundary
     const priceActionResult = await fetchCurrentPriceAction(assetName);
@@ -383,7 +402,7 @@ export async function placeMarketOrderAction(params: {
 
     // Format size according to asset's szDecimals using BigInt
     const sizeInSmallestUnit = parseUnits(size.toString(), szDecimals);
-    const formattedSize = sizeInSmallestUnit.toString(); // The SDK expects the size as a string representing the integer in the smallest unit
+    const formattedSize = sizeInSmallestUnit.toString();
 
     console.log(`Formatted Order Details: AssetIndex=${assetIndex}, IsBuy=${isBuy}, Size=${formattedSize} (smallest units), LimitPx=${formattedLimitPx} (Slippage: ${slippageBps} Bps)`);
 
@@ -414,58 +433,85 @@ export async function placeMarketOrderAction(params: {
 
     console.log("Sending order to Hyperliquid:", JSON.stringify(orderPayload, null, 2));
 
-    // Place the order using the wallet client
-    const orderResponse = await walletClient.order(orderPayload); // Pass payload directly
+    try {
+      // Place the order using the wallet client
+      const orderResponse = await walletClient.order(orderPayload); // Pass payload directly
 
-    console.log("Hyperliquid Order Response:", JSON.stringify(orderResponse, null, 2));
+      console.log("Hyperliquid Order Response:", JSON.stringify(orderResponse, null, 2));
 
-    // Process the response - expecting OrderResponseSuccess type on success
-    const statusData = (orderResponse as OrderResponseSuccess).response.data.statuses[0]; // Assuming single order placement
+      // Check if the response indicates an API error
+      if (orderResponse.status !== "ok") {
+        throw new Error(`API returned status: ${orderResponse.status} - ${JSON.stringify(orderResponse.response)}`);
+      }
 
-    let resultData: HyperliquidOrderResult;
+      // Process the response - expecting OrderResponseSuccess type on success
+      const statusData = (orderResponse as OrderResponseSuccess).response.data.statuses[0]; // Assuming single order placement
 
-    if (statusData && "resting" in statusData && statusData.resting) {
-      // Order is resting (partially filled or not filled by IOC) - treat as potentially failed market order
-      const oid = statusData.resting.oid;
-      console.warn(`Market order for ${size} ${assetName} resulted in a resting order (oid: ${oid}). IOC might not have filled fully.`);
-      resultData = {
-        oid: oid,
-        cloid: statusData.resting.cloid,
-        status: 'resting', // Indicate it didn't fill fully as expected
+      // Check if the status contains an error
+      if (statusData && "error" in statusData && statusData.error) {
+        // Enhanced error handling to provide more specific messages
+        const errorMsg = statusData.error;
+        console.error("Hyperliquid order error details:", errorMsg);
+
+        if (errorMsg.includes("size too small")) {
+          throw new Error(`Order size too small. Minimum trade size may be higher than ${formattedSize}.`);
+        } else if (errorMsg.includes("master trade switch")) {
+          throw new Error("Master trade switch is disabled. Please enable it in settings.");
+        } else if (errorMsg.includes("insufficient") || errorMsg.includes("margin")) {
+          throw new Error("Insufficient margin to place this order. Please add more collateral.");
+        } else {
+          throw new Error(`Order error: ${errorMsg}`);
+        }
+      }
+
+      let resultData: HyperliquidOrderResult;
+
+      if (statusData && "resting" in statusData && statusData.resting) {
+        // Order is resting (partially filled or not filled by IOC) - treat as potentially failed market order
+        const oid = statusData.resting.oid;
+        console.warn(`Market order for ${size} ${assetName} resulted in a resting order (oid: ${oid}). IOC might not have filled fully.`);
+        resultData = {
+          oid: oid,
+          cloid: statusData.resting.cloid,
+          status: 'resting', // Indicate it didn't fill fully as expected
+        };
+        // Log this specific outcome for potential debugging
+        await logTradeAction({
+          symbol: assetName,
+          direction: isBuy ? 'long' : 'short',
+          size: size,
+          entryPrice: 0, // Or parse from potential partial fill if available
+          status: 'resting_ioc', // Custom status
+          hyperliquidOrderId: oid.toString(),
+          errorMessage: 'IOC order did not fill immediately.',
+        });
+      } else if (statusData && "filled" in statusData && statusData.filled) {
+        // Order filled successfully
+        const filledData = statusData.filled;
+        console.log(`Market order filled: oid=${filledData.oid}, avgPx=${filledData.avgPx}, totalSz=${filledData.totalSz}`);
+        resultData = {
+          oid: filledData.oid,
+          cloid: filledData.cloid,
+          status: 'filled',
+          totalSz: formatUnits(BigInt(filledData.totalSz), szDecimals), // Convert back to standard units
+          avgPx: filledData.avgPx,
+        };
+      } else {
+        // Should not happen if validation worked, but handle defensively
+        console.error("Unexpected order status structure in response:", statusData);
+        throw new Error("Unexpected order status structure received from API.");
+      }
+
+      return {
+        isSuccess: true,
+        message: `Market order ${resultData.status === 'filled' ? 'filled' : 'placed (IOC, potentially partial/no fill)'} successfully for ${assetName}.`,
+        data: resultData,
       };
-      // Log this specific outcome for potential debugging
-      await logTradeAction({
-        symbol: assetName,
-        direction: isBuy ? 'long' : 'short',
-        size: size,
-        entryPrice: 0, // Or parse from potential partial fill if available
-        status: 'resting_ioc', // Custom status
-        hyperliquidOrderId: oid.toString(),
-        errorMessage: 'IOC order did not fill immediately.',
-      });
-    } else if (statusData && "filled" in statusData && statusData.filled) {
-      // Order filled successfully
-      const filledData = statusData.filled;
-      console.log(`Market order filled: oid=${filledData.oid}, avgPx=${filledData.avgPx}, totalSz=${filledData.totalSz}`);
-      resultData = {
-        oid: filledData.oid,
-        cloid: filledData.cloid,
-        status: 'filled',
-        totalSz: formatUnits(BigInt(filledData.totalSz), szDecimals), // Convert back to standard units
-        avgPx: filledData.avgPx,
-      };
-    } else {
-      // Should not happen if validation worked, but handle defensively
-      console.error("Unexpected order status structure in response:", statusData);
-      throw new Error("Unexpected order status structure received from API.");
+    } catch (orderError) {
+      // Handle specific errors from the order submission
+      console.error(`Order submission error:`, orderError);
+      throw orderError; // Re-throw to be caught by the outer catch block
     }
-
-    return {
-      isSuccess: true,
-      message: `Market order ${resultData.status === 'filled' ? 'filled' : 'placed (IOC, potentially partial/no fill)'} successfully for ${assetName}.`,
-      data: resultData,
-    };
-
   } catch (error: unknown) {
     console.error(`❌ Error placing market order for ${assetName}:`, error);
     let errorMessage = "Failed to place market order.";
@@ -474,14 +520,36 @@ export async function placeMarketOrderAction(params: {
     // Check for specific Hyperliquid API errors if possible (depends on SDK error structure)
     if (error instanceof Error) {
       errorDetails = error.message;
-      if (error.message.includes("Insufficient margin") || error.message.includes("insufficient collateral")) {
+
+      if (error.message.includes("Cannot process API request: Order 0 failed: Order")) {
+        errorMessage = "Hyperliquid API rejected the order. Please check your account settings and try again.";
+
+        // Log additional debugging info
+        console.error("Order rejection details:", {
+          assetName,
+          size,
+          isBuy,
+          errorMessage: error.message
+        });
+
+        // Additional checks for common rejection reasons
+        if (error.message.includes("maintenance")) {
+          errorMessage = "Exchange is in maintenance mode. Try again later.";
+        } else if (error.message.includes("master trade")) {
+          errorMessage = "Master trade switch is disabled. Enable it from the settings page.";
+        } else if (error.message.includes("trade disabled")) {
+          errorMessage = "Trading is currently disabled on your account.";
+        }
+      } else if (error.message.includes("Insufficient margin") || error.message.includes("insufficient collateral")) {
         errorMessage = "Insufficient margin to place the order.";
       } else if (error.message.includes("abs_value") || error.message.includes("too small")) {
-        errorMessage = "Order size is too small.";
+        errorMessage = "Order size is too small. Try increasing the size.";
       } else if (error.message.includes("leverage is too high")) {
         errorMessage = "Leverage limit exceeded.";
       } else if (error.message.includes("Request timed out")) {
         errorMessage = "Request timed out. Please try again.";
+      } else if (error.message.includes("HYPERLIQUID_API_SECRET")) {
+        errorMessage = "API key error: Please check your Hyperliquid API secret configuration.";
       }
       // Add more specific error mappings based on observed API responses
     }
@@ -490,6 +558,55 @@ export async function placeMarketOrderAction(params: {
       isSuccess: false,
       message: errorMessage,
       error: errorDetails,
+    };
+  }
+}
+
+/**
+ * Checks if the Hyperliquid API is properly configured with a valid API secret.
+ * This is used by the UI to display a warning when trading functionality is unavailable.
+ * 
+ * @returns {Promise<ActionState<{ configured: boolean }>>} An ActionState object indicating if the API is properly configured.
+ */
+export async function checkApiConfigAction(): Promise<ActionState<{ configured: boolean }>> {
+  console.log("Checking API configuration status");
+  try {
+    const { walletClient, config } = setupClients();
+
+    // Check if the wallet client is available (requires valid API secret)
+    if (!walletClient || !config.account) {
+      console.log("API not properly configured - wallet client or account is null");
+      return {
+        isSuccess: false,
+        message: "Hyperliquid API secret not configured or invalid.",
+        error: "Missing or invalid API secret",
+      };
+    }
+
+    // Check if we can get the wallet address
+    const userAddress = config.account.address;
+    if (!userAddress) {
+      console.log("API configuration issue - could not get wallet address");
+      return {
+        isSuccess: false,
+        message: "Could not derive wallet address from API secret.",
+        error: "Invalid API secret format",
+      };
+    }
+
+    console.log(`API properly configured for wallet address: ${userAddress}`);
+    return {
+      isSuccess: true,
+      message: "Hyperliquid API is properly configured.",
+      data: { configured: true },
+    };
+  } catch (error: unknown) {
+    console.error("Error checking API configuration:", error);
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    return {
+      isSuccess: false,
+      message: `Failed to verify API configuration: ${errorMessage}`,
+      error: errorMessage,
     };
   }
 }

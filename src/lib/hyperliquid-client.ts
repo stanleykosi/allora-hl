@@ -57,10 +57,14 @@ function getClientConfig(): HyperliquidClientConfig {
 
   if (!apiSecret) {
     console.error(
-      "❌ HYPERLIQUID_API_SECRET environment variable is not set.",
+      "❌ HYPERLIQUID_API_SECRET environment variable is not set. Trading functionality will be disabled.",
     );
-    // You might want to throw an error here depending on how critical the client is
-    // throw new Error("HYPERLIQUID_API_SECRET environment variable is not set.");
+    console.error(
+      "To enable trading, you must set your API secret as a 64-character hexadecimal string in your environment variables.",
+    );
+    console.error(
+      "For development, you can create a .env.local file with: HYPERLIQUID_API_SECRET=your_private_key",
+    );
     // For now, we allow the app to potentially run in a read-only state
     return {
       isTestnet: useTestnet,
@@ -74,9 +78,14 @@ function getClientConfig(): HyperliquidClientConfig {
     ? (apiSecret as Hex)
     : (`0x${apiSecret}` as Hex);
   if (!/^0x[a-fA-F0-9]{64}$/.test(privateKeyHex)) {
-    throw new Error(
-      "Invalid HYPERLIQUID_API_SECRET format. It must be a 64-character hexadecimal string, optionally prefixed with '0x'.",
+    console.error(
+      "❌ Invalid HYPERLIQUID_API_SECRET format. It must be a 64-character hexadecimal string, optionally prefixed with '0x'."
     );
+    return {
+      isTestnet: useTestnet,
+      baseUrl: useTestnet ? TESTNET_API_URL : MAINNET_API_URL,
+      account: null,
+    };
   }
 
   try {
@@ -94,9 +103,11 @@ function getClientConfig(): HyperliquidClientConfig {
     };
   } catch (error) {
     console.error("❌ Failed to derive account from HYPERLIQUID_API_SECRET:", error);
-    throw new Error(
-      "Failed to derive account from HYPERLIQUID_API_SECRET. Ensure it is a valid private key.",
-    );
+    return {
+      isTestnet: useTestnet,
+      baseUrl: useTestnet ? TESTNET_API_URL : MAINNET_API_URL,
+      account: null,
+    };
   }
 }
 

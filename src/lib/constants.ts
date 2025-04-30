@@ -21,7 +21,7 @@ export const DEFAULT_APP_SETTINGS = {
   predictionRefreshInterval: DEFAULT_PREDICTION_INTERVAL,
   accountRefreshInterval: DEFAULT_ACCOUNT_INTERVAL,
   alertsEnabled: true, // Default alerts to enabled
-  tradeSwitchEnabled: false, // Default master trade switch to disabled for safety
+  tradeSwitchEnabled: true, // Changed from false to true to enable trading by default
 };
 
 // Asset Constants
