@@ -45,7 +45,7 @@ export const ASSET_INDICES = {
   }
 };
 
-/** Default asset index for BTC - Will be dynamically determined at runtime */
+/** Fixed asset index for BTC - BTC is always at index 0 on Hyperliquid */
 export const BTC_ASSET_INDEX = 0;
 /** Symbol for Bitcoin perpetuals used in UI and potentially logging. */
 export const BTC_SYMBOL_UI = "BTC-PERP";

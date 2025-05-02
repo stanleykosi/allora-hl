@@ -253,13 +253,26 @@ const TradePanel: React.FC<TradePanelProps> = ({ selectedPrediction }) => {
     // This ensures the IOC order executes as a market order
     const slippagePercent = 0.10; // 10%
 
-    // Calculate actual price values
-    const rawPriceLimit = direction === 'long'
+    // Calculate raw price limit with slippage
+    let rawPriceLimit = direction === 'long'
       ? currentPrice * (1 + slippagePercent) // Higher price for buys
       : currentPrice * (1 - slippagePercent); // Lower price for sells
 
+    // CRITICAL FIX: Round to the nearest 0.5 tick size to match Hyperliquid requirements
+    const TICK_SIZE = 0.5;
+    rawPriceLimit = Math.round(rawPriceLimit / TICK_SIZE) * TICK_SIZE;
+
+    // Log the tick size adjustment details
+    console.log("Price limit adjusted to tick size:", {
+      direction,
+      currentPrice,
+      slippagePercent,
+      rawPriceLimit,
+      divisibleByTickSize: rawPriceLimit % TICK_SIZE === 0
+    });
+
     // Format for display - use number formatting with precision and add dollar sign explicitly
-    const formattedPriceLimit = '$' + rawPriceLimit.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    const formattedPriceLimit = '$' + rawPriceLimit.toFixed(1).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 
     console.log("Calculated price limit:", {
       currentPrice,
@@ -379,13 +392,14 @@ const TradePanel: React.FC<TradePanelProps> = ({ selectedPrediction }) => {
               <Input
                 id="size"
                 type="number"
-                placeholder="e.g., 0.01"
+                placeholder="e.g., 0.1 (min $10 value)"
                 value={tradeSize}
                 onChange={(e) => setTradeSize(e.target.value)}
-                min="0"
-                step="any"
+                min="0.00011"
+                step="0.01"
                 disabled={!selectedPrediction || !currentPrice} // Disable if no prediction or price
               />
+              <p className="text-xs text-muted-foreground">Minimum order value: $10 (~0.0001 BTC at current prices)</p>
             </div>
 
             {/* Leverage Input */}

@@ -106,28 +106,41 @@ const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
   };
 
   const handleConfirm = async () => {
-    if (!tradeDetails || isExecuting || !masterSwitchEnabled) {
-      return; // Prevent execution if no details, already executing, or switch is off
-    }
+    // Don't execute if the master trade switch is disabled
+    if (!masterSwitchEnabled || !tradeDetails) return;
 
     setIsExecuting(true);
     setErrorMsg(null);
 
-    try {
-      // Prepare parameters for the action
-      // TODO: Get asset index dynamically if supporting more than BTC
-      const assetIndex = BTC_ASSET_INDEX;
-      const isBuy = tradeDetails.direction === "long";
+    // Variables for logging, initialized with defaults
+    let logEntryPrice = 0;
+    let logStatus = "failed";
+    let logOrderId = "";
+    let logErrorMessage = "";
 
-      // Extract and log the actual numeric values from formatted strings if needed
+    try {
+      // Extract key trade parameters
+      const isBuy = tradeDetails.direction === "long"; // true for long, false for short
+
+      // CRITICAL FIX: Round the price limit to the nearest 0.5 tick size before passing to API
+      const TICK_SIZE = 0.5;
+      const rawPriceLimit = tradeDetails.priceLimitValue;
+      const tickAdjustedPrice = Math.round(rawPriceLimit / TICK_SIZE) * TICK_SIZE;
+
+      console.log("Price limit tick adjustment:", {
+        original: rawPriceLimit,
+        adjusted: tickAdjustedPrice,
+        divisibleByHalf: tickAdjustedPrice % TICK_SIZE === 0
+      });
+
+      // Log details before executing trade
       console.log("Placing order with params:", {
         assetName: tradeDetails.symbol,
         isBuy,
         size: tradeDetails.size,
-        priceLimit: tradeDetails.priceLimit, // Formatted for display
-        priceLimitValue: tradeDetails.priceLimitValue, // Raw numeric value
-        currentMarketPrice: tradeDetails.currentMarketPrice,
-        slippagePercent: ((tradeDetails.priceLimitValue / tradeDetails.currentMarketPrice) - 1) * 100 + "%"
+        rawPriceLimit: rawPriceLimit,
+        adjustedPriceLimit: tickAdjustedPrice,
+        currentMarketPrice: tradeDetails.currentMarketPrice
       });
 
       // Call the Server Action to place the order
@@ -135,14 +148,9 @@ const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
         assetName: tradeDetails.symbol, // Pass name for lookup
         isBuy,
         size: tradeDetails.size,
-        slippageBps: 1000, // Use 10% slippage (consistent with UI calculation)
+        // Pass the tick-size-adjusted price limit value
+        priceLimitValue: tickAdjustedPrice
       });
-
-      // Log the attempt regardless of success or failure
-      let logStatus = "failed"; // Default to failed
-      let logOrderId: string | null = null;
-      let logEntryPrice = 0; // Default entry price for log
-      let logErrorMessage: string | null = result.error ?? result.message;
 
       if (result.isSuccess) {
         logOrderId = result.data.oid.toString();
@@ -205,14 +213,35 @@ const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
     } catch (error: unknown) {
       // Catch unexpected errors during the process
       console.error("Unexpected error during trade confirmation:", error);
-      const message =
-        error instanceof Error ? error.message : "An unknown error occurred.";
-      setErrorMsg(message);
+
+      // Capture the full error details for display
+      let errorMsg = "An unknown error occurred";
+      let errorDetail = "";
+
+      if (error instanceof Error) {
+        errorMsg = error.message;
+        errorDetail = error.stack || "";
+
+        // Try to extract more specific error information if it's wrapped in another message
+        if (errorMsg.includes("API rejected") && errorMsg.includes(":")) {
+          const parts = errorMsg.split(":");
+          if (parts.length > 1) {
+            errorDetail = parts.slice(1).join(":").trim();
+          }
+        }
+      } else {
+        errorMsg = String(error);
+      }
+
+      // Set a more detailed error message for the UI
+      setErrorMsg(`${errorMsg}\n\nFull error details: ${errorDetail || errorMsg}`);
+
       toast({
-        title: "Error",
-        description: message,
+        title: "Trading Error",
+        description: errorMsg,
         variant: "destructive",
       });
+
       // Log this unexpected failure too
       await logTradeAction({
         symbol: tradeDetails.symbol,
@@ -221,7 +250,7 @@ const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
         entryPrice: 0,
         status: 'failed',
         hyperliquidOrderId: null,
-        errorMessage: `Unexpected error during confirmation: ${message}`,
+        errorMessage: `Unexpected error during confirmation: ${errorMsg}`,
       });
     } finally {
       // Only set executing to false if the component is still mounted and the modal didn't close
