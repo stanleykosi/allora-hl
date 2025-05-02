@@ -347,6 +347,7 @@ async function logTradeAction(params: {
  * @param {boolean} params.isBuy - True for a buy (long) order, false for a sell (short) order.
  * @param {number} params.size - The size of the order in the base asset units (e.g., BTC amount).
  * @param {number} params.slippage Bps - The allowed slippage percentage (e.g., 0.05 for 5% slippage) to set the limit price boundary. Default 1000 Bps (10%)
+ * @param {number} params.leverage - The leverage to use for the position (e.g., 10.0 for 10x leverage).
  * @param {string | null} [params.cloid] - Optional Client Order ID (must be a 16-byte hex string if provided).
  * @returns {Promise<ActionState<HyperliquidOrderResult>>} An ActionState object containing the simplified order result on success, or an error message on failure.
  */
@@ -355,10 +356,11 @@ export async function placeMarketOrderAction(params: {
   isBuy: boolean;
   size: number;
   slippageBps?: number; // Added slippage parameter
+  leverage?: number; // Added leverage parameter
   cloid?: Hex | null;
 }): Promise<ActionState<HyperliquidOrderResult>> {
-  const { assetName, isBuy, size, slippageBps = 1000, cloid } = params; // Default slippage 10%
-  console.log(`Executing placeMarketOrderAction for ${assetName}: ${isBuy ? "BUY" : "SELL"} ${size}`);
+  const { assetName, isBuy, size, slippageBps = 1000, leverage = 10, cloid } = params; // Default leverage 10x
+  console.log(`Executing placeMarketOrderAction for ${assetName}: ${isBuy ? "BUY" : "SELL"} ${size} with ${leverage}x leverage`);
 
   try {
     const { walletClient, config } = setupClients();
@@ -385,6 +387,15 @@ export async function placeMarketOrderAction(params: {
         isSuccess: false,
         message: "Order size must be greater than zero.",
         error: "Invalid order size.",
+      };
+    }
+
+    // Validate leverage is within acceptable bounds
+    if (leverage <= 0 || leverage > 40) {
+      return {
+        isSuccess: false,
+        message: "Leverage must be between 1x and 40x (Hyperliquid's maximum).",
+        error: "Invalid leverage value.",
       };
     }
 
@@ -512,8 +523,34 @@ export async function placeMarketOrderAction(params: {
       Size: ${sizeString} ${assetName}
       Current Price: ${currentPrice}
       Limit Price: ${priceString} (raw: ${currentPrice}, adjusted to tick size: ${currentPrice})
+      Leverage: ${leverage}x
       Minimum Value Check: ${orderValue.toFixed(2)} USD (minimum: $10)
     `);
+
+    // Set the leverage before placing the order
+    try {
+      // First, we need to set the leverage for this asset
+      const setLeveragePayload = {
+        asset: assetIndex,
+        isCross: true,  // Most exchanges use cross margin by default
+        leverage: leverage
+      };
+
+      console.log("Setting leverage with payload:", JSON.stringify(setLeveragePayload, null, 2));
+
+      // Submit the leverage update using the wallet client
+      const leverageResponse = await walletClient.updateLeverage(setLeveragePayload);
+      console.log("Leverage update response:", JSON.stringify(leverageResponse, null, 2));
+
+      if (leverageResponse.status !== "ok") {
+        throw new Error(`Failed to set leverage: ${leverageResponse.status}`);
+      }
+
+      console.log(`Successfully set leverage to ${leverage}x for asset index ${assetIndex}`);
+    } catch (leverageError: any) {
+      console.error("Error setting leverage:", leverageError);
+      throw new Error(`Failed to set leverage: ${leverageError.message || "Unknown error"}`);
+    }
 
     // Construct the order using a simpler approach
     const orders = [{
@@ -575,7 +612,10 @@ export async function placeMarketOrderAction(params: {
       }
 
       // Handle order outcome
-      let resultData = {};
+      let resultData: HyperliquidOrderResult = {
+        oid: -1,
+        status: 'resting'  // Default to 'resting' instead of 'unknown'
+      };
 
       if (statusData && "resting" in statusData && statusData.resting) {
         // Order is resting

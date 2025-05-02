@@ -148,8 +148,10 @@ const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
         assetName: tradeDetails.symbol, // Pass name for lookup
         isBuy,
         size: tradeDetails.size,
-        // Pass the tick-size-adjusted price limit value
-        priceLimitValue: tickAdjustedPrice
+        // Pass the leverage selected by the user
+        leverage: tradeDetails.leverage,
+        // Use slippageBps parameter with a small value (2%) to avoid Hyperliquid's 80% price deviation limit
+        slippageBps: 200 // 2% slippage
       });
 
       if (result.isSuccess) {
@@ -249,7 +251,7 @@ const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
         size: tradeDetails.size,
         entryPrice: 0,
         status: 'failed',
-        hyperliquidOrderId: null,
+        hyperliquidOrderId: '', // Empty string instead of null
         errorMessage: `Unexpected error during confirmation: ${errorMsg}`,
       });
     } finally {

@@ -241,7 +241,22 @@ const TradePanel: React.FC<TradePanelProps> = ({ selectedPrediction }) => {
     if (!isReviewEnabled) return;
 
     const sizeNum = parseFloat(tradeSize);
-    const leverageNum = parseFloat(leverage);
+    let leverageNum = parseFloat(leverage);
+
+    // Check if leverage exceeds Hyperliquid's limit
+    if (leverageNum > 40) {
+      // Cap leverage at 40x
+      leverageNum = 40;
+      setLeverage("40");
+
+      // Show warning toast
+      toast({
+        title: "Leverage Limit Applied",
+        description: "Hyperliquid only supports up to 40x leverage for BTC trades. Your leverage has been capped at 40x.",
+        variant: "destructive",
+        duration: 5000,
+      });
+    }
 
     // Basic check to ensure required values are present
     if (!selectedPrediction || !currentPrice || !direction || estimatedMargin === null || estimatedLiqPrice === null) {
@@ -404,17 +419,41 @@ const TradePanel: React.FC<TradePanelProps> = ({ selectedPrediction }) => {
 
             {/* Leverage Input */}
             <div className="space-y-1">
-              <Label htmlFor="leverage">Leverage (for estimation)</Label>
+              <Label htmlFor="leverage">
+                Leverage (for estimation)
+                <span className="ml-1 text-xs text-muted-foreground">(Max: 40x)</span>
+              </Label>
               <div className="flex items-center space-x-2">
                 <Input
                   id="leverage"
                   type="number"
                   placeholder="e.g., 10"
                   value={leverage}
-                  onChange={(e) => setLeverage(e.target.value)}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    const numValue = parseFloat(value);
+
+                    // Check if value exceeds limit when it's a valid number
+                    if (!isNaN(numValue) && numValue > 40) {
+                      // Auto-cap at 40x
+                      setLeverage("40");
+
+                      // Show warning toast
+                      toast({
+                        title: "Leverage Limit Exceeded",
+                        description: "Hyperliquid only supports up to 40x leverage for BTC trades. Your leverage has been capped at 40x.",
+                        variant: "destructive",
+                        duration: 5000,
+                      });
+                    } else {
+                      setLeverage(value);
+                    }
+                  }}
                   min="1" // Minimum leverage is typically 1
+                  max="40" // Maximum leverage for Hyperliquid BTC
                   step="any"
                   disabled={!selectedPrediction || !currentPrice} // Disable if no prediction or price
+                  className={parseFloat(leverage) > 40 ? "border-destructive" : ""}
                 />
                 <TooltipProvider>
                   <Tooltip>
@@ -422,12 +461,19 @@ const TradePanel: React.FC<TradePanelProps> = ({ selectedPrediction }) => {
                       <Info className="h-4 w-4 text-muted-foreground cursor-help" />
                     </TooltipTrigger>
                     <TooltipContent>
-                      <p className="text-xs max-w-xs">Leverage is set per-asset on Hyperliquid. This value is used for margin and liquidation price *estimation* only. Ensure your desired leverage is set correctly on the exchange itself.</p>
+                      <p className="text-xs max-w-xs">
+                        Leverage is set per-asset on Hyperliquid with a maximum of 40x for BTC.
+                        This value is used for margin and liquidation price estimation.
+                      </p>
                     </TooltipContent>
                   </Tooltip>
                 </TooltipProvider>
               </div>
-
+              {parseFloat(leverage) > 40 && (
+                <p className="text-xs text-destructive mt-1">
+                  Hyperliquid limits BTC leverage to 40x maximum.
+                </p>
+              )}
             </div>
 
             {/* Estimates Display */}

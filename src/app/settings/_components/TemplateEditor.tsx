@@ -98,6 +98,8 @@ const TemplateEditor: React.FC<TemplateEditorProps> = ({
     const leverageNum = parseFloat(leverage);
     if (isNaN(leverageNum) || leverageNum <= 0) {
       newErrors.leverage = "Leverage must be a positive number.";
+    } else if (leverageNum > 40) {
+      newErrors.leverage = "Hyperliquid only supports up to 40x leverage for BTC.";
     }
 
     setErrors(newErrors);
@@ -216,16 +218,38 @@ const TemplateEditor: React.FC<TemplateEditorProps> = ({
           <div className="grid grid-cols-4 items-center gap-4">
             <Label htmlFor="leverage" className="text-right">
               Leverage
+              <span className="ml-1 text-xs text-muted-foreground">(Max: 40x)</span>
             </Label>
             <div className="col-span-3">
               <Input
                 id="leverage"
                 type="number"
                 value={leverage}
-                onChange={(e) => setLeverage(e.target.value)}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  const numValue = parseFloat(value);
+
+                  // Check if value exceeds limit when it's a valid number
+                  if (!isNaN(numValue) && numValue > 40) {
+                    // Auto-cap at 40x
+                    setLeverage("40");
+
+                    // Show warning toast
+                    toast({
+                      title: "Leverage Limit Exceeded",
+                      description: "Hyperliquid only supports up to 40x leverage for BTC trades. Your leverage has been capped at 40x.",
+                      variant: "destructive",
+                      duration: 5000,
+                    });
+                  } else {
+                    setLeverage(value);
+                  }
+                }}
                 step="any" // Allow decimals
-                min="0" // Basic validation
-                className={errors.leverage ? "border-destructive" : ""}
+                min="1" // Minimum leverage
+                max="40" // Maximum leverage for Hyperliquid BTC
+                className={`${errors.leverage ? "border-destructive" : ""} ${parseFloat(leverage) > 40 ? "border-destructive" : ""
+                  }`}
                 disabled={isSaving}
                 placeholder="e.g., 10"
               />
@@ -234,6 +258,14 @@ const TemplateEditor: React.FC<TemplateEditorProps> = ({
                   {errors.leverage}
                 </p>
               )}
+              {!errors.leverage && parseFloat(leverage) > 40 && (
+                <p className="text-xs text-destructive mt-1">
+                  Hyperliquid limits BTC leverage to 40x maximum.
+                </p>
+              )}
+              <p className="text-xs text-muted-foreground mt-1">
+                Hyperliquid supports up to 40x leverage for BTC.
+              </p>
             </div>
           </div>
 
