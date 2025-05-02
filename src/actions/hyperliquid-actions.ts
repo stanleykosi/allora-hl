@@ -267,28 +267,46 @@ export async function fetchCurrentPriceAction(
       name: asset.name
     })));
 
-    // Find the context for the requested asset index
-    if (assetIndex < 0 || assetIndex >= assetCtxs.length) {
-      console.error(`Invalid asset index determined or used: ${assetIndex}`);
-      const validNames = meta.universe.map(a => a.name).join(", ");
-      throw new Error(`Asset index ${assetIndex} out of bounds. Valid assets: ${validNames}`);
+    // Find asset index by name - be extremely careful with this
+    let actualAssetIndex = -1;
+    meta.universe.forEach((asset, idx) => {
+      if (asset.name === assetName) {
+        actualAssetIndex = idx;
+        console.log(`Found exact match for ${assetName} at index ${idx}`);
+      }
+    });
+
+    // Extra safety check - if we couldn't find by name, log all assets and fall back to the original index
+    if (actualAssetIndex === -1) {
+      console.error(`Could not find exact match for ${assetName} in Hyperliquid universe. Available assets:`);
+      meta.universe.forEach((asset, idx) => {
+        console.log(`Asset ${idx}: ${asset.name} (Price: ${assetCtxs[idx]?.markPx})`);
+      });
+      actualAssetIndex = assetIndex; // Fall back to the original index
+      console.warn(`Falling back to original index: ${assetIndex}`);
     }
 
-    const assetCtx: HyperliquidAssetCtx | undefined = assetCtxs[assetIndex];
+    if (actualAssetIndex < 0 || actualAssetIndex >= assetCtxs.length) {
+      console.error(`Invalid asset index determined or used: ${actualAssetIndex}`);
+      const validNames = meta.universe.map(a => a.name).join(", ");
+      throw new Error(`Asset index ${actualAssetIndex} out of bounds. Valid assets: ${validNames}`);
+    }
+
+    const assetCtx: HyperliquidAssetCtx | undefined = assetCtxs[actualAssetIndex];
 
     if (!assetCtx) {
-      console.error(`No asset context found for index: ${assetIndex}`);
-      throw new Error(`Asset context not found for index ${assetIndex}.`);
+      console.error(`No asset context found for index: ${actualAssetIndex}`);
+      throw new Error(`Asset context not found for index ${actualAssetIndex}.`);
     }
 
     // Extract the mark price
     const markPrice = assetCtx.markPx;
-    console.log(`Successfully fetched mark price for asset ${assetName} (index ${assetIndex}): ${markPrice}`);
+    console.log(`Successfully fetched mark price for asset ${assetName} (index ${actualAssetIndex}): ${markPrice}`);
 
     return {
       isSuccess: true,
-      message: `Successfully fetched current mark price for asset ${assetName} (index ${assetIndex}).`,
-      data: { price: markPrice, assetIndex: assetIndex },
+      message: `Successfully fetched current mark price for asset ${assetName} (index ${actualAssetIndex}).`,
+      data: { price: markPrice, assetIndex: actualAssetIndex },
     };
   } catch (error: unknown) {
     console.error(
@@ -390,21 +408,48 @@ export async function placeMarketOrderAction(params: {
       const [meta, assetCtxs] = await publicClient.metaAndAssetCtxs();
 
       // Log the full assets list for debugging
-      console.log("Available Hyperliquid assets:");
+      console.log("Available Hyperliquid assets with prices:");
       meta.universe.forEach((asset, idx) => {
-        console.log(`Asset ${idx}: ${asset.name} - ${assetCtxs[idx]?.markPx || 'no price'}`);
+        console.log(`Asset ${idx}: ${asset.name} - $${assetCtxs[idx]?.markPx || 'no price'}`);
       });
 
-      // Find BTC by name instead of assuming index
+      // IMPORTANT: On testnet, asset names may be mismatched
+      // Detect BTC by both name AND price characteristics
       let btcIndex = -1;
+      let btcByPrice = -1;
+
+      // First try to find by name
       meta.universe.forEach((asset, idx) => {
         if (asset.name === "BTC") {
           btcIndex = idx;
-          console.log(`Found BTC at index ${idx}`);
+          console.log(`Found asset named BTC at index ${idx}`);
+        }
+
+        // Also check for BTC-like prices (should be around $97K, not $150)
+        const price = parseFloat(assetCtxs[idx]?.markPx || "0");
+        if (price > 10000) { // BTC should be >$10K - SOL won't be
+          btcByPrice = idx;
+          console.log(`Found asset with BTC-like price ($${price}) at index ${idx}`);
         }
       });
 
-      // Use the exact index found from the API
+      // If price and name detection disagree, log this
+      if (btcIndex !== -1 && btcByPrice !== -1 && btcIndex !== btcByPrice) {
+        console.warn(`ASSET MISMATCH DETECTED: Asset named BTC is at index ${btcIndex} but BTC-like price is at index ${btcByPrice}`);
+
+        // Check prices to determine which is actually BTC
+        const namedPrice = parseFloat(assetCtxs[btcIndex]?.markPx || "0");
+        const priceBasedIndex = parseFloat(assetCtxs[btcByPrice]?.markPx || "0");
+
+        console.log(`Price of asset named BTC: $${namedPrice}`);
+        console.log(`Price of asset with BTC-like price: $${priceBasedIndex}`);
+
+        // CRITICAL: Choose the asset with BTC-like price regardless of name on testnet
+        console.log(`OVERRIDE: Using price-based detection: index ${btcByPrice} for BTC`);
+        btcIndex = btcByPrice;
+      }
+
+      // Use the selected index
       if (btcIndex !== -1) {
         console.log(`USING HYPERLIQUID INDEX: ${btcIndex} for BTC`);
         const apiPrice = parseFloat(assetCtxs[btcIndex]?.markPx || "0");
