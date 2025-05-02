@@ -394,6 +394,9 @@ export async function placeMarketOrderAction(params: {
 
     // Calculate price limit based on slippage
     const slippageFactor = (slippageBps ?? 1000) / 10000; // Convert Bps to decimal
+    // For market orders using IOC:
+    // - BUY orders need HIGHER price limits than current price to ensure they fill
+    // - SELL orders need LOWER price limits than current price to ensure they fill
     const limitPx = isBuy
       ? currentPrice * (1 + slippageFactor)
       : currentPrice * (1 - slippageFactor);

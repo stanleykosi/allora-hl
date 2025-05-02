@@ -65,7 +65,8 @@ export interface TradeConfirmationDetails {
   direction: "long" | "short";
   size: number; // In base asset units (e.g., BTC amount)
   leverage: number; // Leverage used for estimation
-  priceLimit: string; // Calculated price limit for the IOC market order
+  priceLimit: string; // Formatted price limit for display
+  priceLimitValue: number; // Raw price limit value for calculations
   estimatedMargin: number;
   estimatedLiqPrice: number;
   currentMarketPrice: number; // Current price for reference
@@ -118,11 +119,15 @@ const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
       const assetIndex = BTC_ASSET_INDEX;
       const isBuy = tradeDetails.direction === "long";
 
+      // Extract and log the actual numeric values from formatted strings if needed
       console.log("Placing order with params:", {
-        assetName: tradeDetails.symbol, // Pass name for potential dynamic lookup in action
+        assetName: tradeDetails.symbol,
         isBuy,
         size: tradeDetails.size,
-        priceLimit: tradeDetails.priceLimit, // Slippage limit for IOC order
+        priceLimit: tradeDetails.priceLimit, // Formatted for display
+        priceLimitValue: tradeDetails.priceLimitValue, // Raw numeric value
+        currentMarketPrice: tradeDetails.currentMarketPrice,
+        slippagePercent: ((tradeDetails.priceLimitValue / tradeDetails.currentMarketPrice) - 1) * 100 + "%"
       });
 
       // Call the Server Action to place the order
@@ -130,8 +135,7 @@ const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
         assetName: tradeDetails.symbol, // Pass name for lookup
         isBuy,
         size: tradeDetails.size,
-        // Note: slippage is used to calculate priceLimit in TradePanel,
-        // The action uses priceLimit for the IOC order boundary.
+        slippageBps: 1000, // Use 10% slippage (consistent with UI calculation)
       });
 
       // Log the attempt regardless of success or failure
@@ -269,7 +273,7 @@ const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
             <span className="font-medium">Market (IOC Limit)</span>
 
             <span className="text-muted-foreground">Limit Price Boundary:</span>
-            <span className="font-medium">{formatCurrency(tradeDetails.priceLimit)}</span>
+            <span className="font-medium">{tradeDetails.priceLimit}</span>
           </div>
           <div className="mt-3 space-y-1 border-t pt-2 text-muted-foreground text-xs">
             <h5 className="font-medium text-foreground mb-1">Estimates (Approximate):</h5>

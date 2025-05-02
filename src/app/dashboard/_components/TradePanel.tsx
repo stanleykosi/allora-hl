@@ -252,20 +252,33 @@ const TradePanel: React.FC<TradePanelProps> = ({ selectedPrediction }) => {
     // Calculate a wide price limit for the market order (e.g., +/- 10%)
     // This ensures the IOC order executes as a market order
     const slippagePercent = 0.10; // 10%
-    const priceLimit = direction === 'long'
-      ? formatNumber(currentPrice * (1 + slippagePercent), 2) // Use formatNumber for consistent string representation
-      : formatNumber(currentPrice * (1 - slippagePercent), 2);
+
+    // Calculate actual price values
+    const rawPriceLimit = direction === 'long'
+      ? currentPrice * (1 + slippagePercent) // Higher price for buys
+      : currentPrice * (1 - slippagePercent); // Lower price for sells
+
+    // Format for display - use number formatting with precision and add dollar sign explicitly
+    const formattedPriceLimit = '$' + rawPriceLimit.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+
+    console.log("Calculated price limit:", {
+      currentPrice,
+      direction,
+      slippagePercent: slippagePercent * 100 + "%",
+      rawPriceLimit,
+      formattedPriceLimit
+    });
 
     const details: TradeConfirmationDetails = {
       symbol: BTC_SYMBOL_UI,
-      // predictionPrice: selectedPrediction.price, // Not strictly needed by modal, but good for logging
       currentMarketPrice: currentPrice,
       direction,
       size: sizeNum,
       leverage: leverageNum, // Leverage used for estimation
       estimatedMargin,
       estimatedLiqPrice,
-      priceLimit: priceLimit, // Pass calculated string limit
+      priceLimit: formattedPriceLimit, // Formatted for display
+      priceLimitValue: rawPriceLimit  // Raw numeric value for calculations
     };
 
     console.log("Opening confirmation modal with details:", details);
