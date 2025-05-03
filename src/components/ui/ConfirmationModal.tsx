@@ -101,6 +101,9 @@ const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
   const handleClose = () => {
     // Prevent closing while executing
     if (!isExecuting) {
+      // Ensure all states are reset properly before closing
+      setIsExecuting(false);
+      setErrorMsg(null);
       onOpenChange(false);
     }
   };
@@ -199,8 +202,39 @@ const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
             variant: "default", // Still default style, but message indicates potential issue
           });
         }
+
+        // First ensure we reset executing state
+        setIsExecuting(false);
+
+        // Then refresh and close modal
         router.refresh(); // Refresh server data (positions, balance)
         onOpenChange(false); // Close modal on success
+
+        // No need to reach the finally block for a successful trade
+
+        // Call log action
+        const logResult = await logTradeAction({
+          symbol: tradeDetails.symbol,
+          direction: tradeDetails.direction,
+          size: tradeDetails.size,
+          entryPrice: logEntryPrice, // Use actual fill price or 0 if failed/resting
+          status: logStatus,
+          hyperliquidOrderId: logOrderId,
+          errorMessage: logErrorMessage,
+        });
+
+        if (!logResult.isSuccess) {
+          // Log the logging failure, but don't necessarily block the user flow
+          console.error("Failed to log trade outcome:", logResult.message);
+          toast({
+            title: "Logging Error",
+            description: "Failed to save trade log entry: " + logResult.message,
+            variant: "destructive",
+          });
+        }
+
+        // We've handled everything for the successful case, so return early
+        return;
       } else {
         // All tick sizes failed
         setErrorMsg(`Failed to place order with any tick size: ${lastError}`);
@@ -211,7 +245,7 @@ const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
         });
       }
 
-      // Call log action
+      // If we reach here, the order wasn't successful, so we call logTradeAction with failure status
       const logResult = await logTradeAction({
         symbol: tradeDetails.symbol,
         direction: tradeDetails.direction,
@@ -219,7 +253,7 @@ const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
         entryPrice: logEntryPrice, // Use actual fill price or 0 if failed/resting
         status: logStatus,
         hyperliquidOrderId: logOrderId,
-        errorMessage: logErrorMessage,
+        errorMessage: logErrorMessage || "Unknown failure",
       });
 
       if (!logResult.isSuccess) {
@@ -275,14 +309,9 @@ const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
         errorMessage: `Unexpected error during confirmation: ${errorMsg}`,
       });
     } finally {
-      // Always reset the executing state
+      // Always reset the executing state for unsuccessful trades
+      // Successful trades have already reset this and returned early
       setIsExecuting(false);
-
-      // Force close the modal if we have a successful order result
-      if (orderResult && orderResult.isSuccess) {
-        console.log("Closing modal after successful order");
-        onOpenChange(false);
-      }
     }
   };
 
