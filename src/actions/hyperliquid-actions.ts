@@ -551,29 +551,29 @@ export async function placeMarketOrderAction(params: {
         // For BUY orders, add 2% to reference price (within Hyperliquid's limits)
         // First multiply by 10, round to nearest integer, then divide by 10 to get a value with one decimal place
         let buyPrice = Math.ceil(currentPrice * 1.02 / TICK_SIZE) * TICK_SIZE;
-        
+
         // Force exactly one decimal place - critical for Hyperliquid
         buyPrice = Math.round(buyPrice * 10) / 10;
-        
+
         // Ensure we're at a valid tick by checking remainder
         if ((buyPrice / TICK_SIZE) % 1 !== 0) {
           buyPrice = Math.ceil(buyPrice / TICK_SIZE) * TICK_SIZE;
         }
-        
+
         // Convert to string with exactly one decimal place
         priceString = buyPrice.toFixed(1);
       } else {
         // For SELL orders, subtract 2% from reference price (within Hyperliquid's limits)
         let sellPrice = Math.floor(currentPrice * 0.98 / TICK_SIZE) * TICK_SIZE;
-        
+
         // Force exactly one decimal place - critical for Hyperliquid
         sellPrice = Math.round(sellPrice * 10) / 10;
-        
+
         // Ensure we're at a valid tick by checking remainder
         if ((sellPrice / TICK_SIZE) % 1 !== 0) {
           sellPrice = Math.floor(sellPrice / TICK_SIZE) * TICK_SIZE;
         }
-        
+
         // Convert to string with exactly one decimal place
         priceString = sellPrice.toFixed(1);
       }
@@ -581,7 +581,7 @@ export async function placeMarketOrderAction(params: {
       // Double-check the price is valid by parsing and verifying the tick size directly
       const finalPrice = parseFloat(priceString);
       const tickCheck = (finalPrice / TICK_SIZE) % 1;
-      
+
       if (Math.abs(tickCheck) > 0.0001) { // Use small epsilon for floating point comparison
         console.error(`CRITICAL ERROR: Final price ${priceString} (${finalPrice}) is not at a valid tick increment. Remainder: ${tickCheck}, Tick Size: ${TICK_SIZE}`);
         // Emergency correction
@@ -590,7 +590,7 @@ export async function placeMarketOrderAction(params: {
         console.log(`Emergency correction to price: ${priceString}`);
       }
     }
-    
+
     console.log(`Using Hyperliquid-compatible price for ${isBuy ? "BUY" : "SELL"}: ${priceString} (reference: ${currentPrice}, tick size: ${TICK_SIZE})`);
 
     const sizeString = size.toString();
