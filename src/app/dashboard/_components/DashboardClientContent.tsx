@@ -26,7 +26,7 @@
  * - ./AlloraStatusIndicator: Component to display Allora API status.
  * - ./HyperliquidStatusIndicator: Component to display Hyperliquid API status.
  * - ./TradePanel: Component for staging trades.
- * - Placeholder components (TradeLog) to be replaced later.
+ * - ./TradeLogDisplay: Component for displaying trade history.
  * - @/lib/constants: Provides default settings values.
  *
  * @notes
@@ -61,18 +61,9 @@ import PredictionFeed from "./PredictionFeed";
 import AlloraStatusIndicator from "./AlloraStatusIndicator";
 import HyperliquidStatusIndicator from "./HyperliquidStatusIndicator";
 import TradePanel from "./TradePanel";
+import TradeLogDisplay from "./TradeLogDisplay"; // Import the actual component
 import { Button } from "@/components/ui/button";
 import { RefreshCw } from "lucide-react";
-
-// Placeholder components - TradeLog will be replaced later
-const TradeLogPlaceholder = ({ initialLogs, initialError }: { initialLogs: TradeLogEntry[] | null, initialError: string | null }) => (
-  <div className="p-4 border rounded-lg bg-card text-card-foreground shadow-sm min-h-[150px]">
-    <h3 className="font-semibold mb-2">Trade Log</h3>
-    {initialError && <p className="text-destructive text-sm">Error loading: {initialError}</p>}
-    <pre className="text-xs overflow-auto">{JSON.stringify(initialLogs, null, 2)}</pre>
-    <p className="text-muted-foreground text-sm mt-2">(Placeholder - Full component in Step 26)</p>
-  </div>
-);
 
 /**
  * Props for the DashboardClientContent component.
@@ -160,6 +151,7 @@ export default function DashboardClientContent({
         refreshAccountInfo(),
         refreshPositions(),
         refreshPredictions(),
+        // Add refresh for logs if TradeLogDisplay implements its own refresh callback
       ]);
 
       // Also refresh mark prices if we have positions
@@ -211,8 +203,9 @@ export default function DashboardClientContent({
             variant="outline"
             size="sm"
             onClick={refreshAllData}
+            disabled={isLoadingAccountInfo || isLoadingPositions || isLoadingPredictions} // Disable during any fetch
           >
-            <RefreshCw className="h-4 w-4 mr-2" />
+            <RefreshCw className={`h-4 w-4 mr-2 ${(isLoadingAccountInfo || isLoadingPositions || isLoadingPredictions) ? 'animate-spin' : ''}`} />
             Refresh All
           </Button>
         </div>
@@ -237,10 +230,10 @@ export default function DashboardClientContent({
             initialError={initialPositionsError}
           />
 
-          {/* Trade Log Display Component (Placeholder) */}
-          <TradeLogPlaceholder
+          {/* Trade Log Display Component */}
+          <TradeLogDisplay
             key="trade-log"
-            initialLogs={initialLogs}
+            initialLogEntries={initialLogs}
             initialError={initialLogsError}
           />
         </div>
