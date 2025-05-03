@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { fetchCurrentPriceAction, checkApiConfigAction, placeMarketOrderAction } from '@/actions/hyperliquid-actions';
 
-const TradingForm = ({ initialPrice, onTradeSubmit }) => {
+const TradingForm = ({ initialPrice, onTradeSubmit, suggestedDirection }) => {
   // Form state
   const [size, setSize] = useState('0.01');
   const [leverage, setLeverage] = useState('10');
@@ -11,6 +11,15 @@ const TradingForm = ({ initialPrice, onTradeSubmit }) => {
   const [error, setError] = useState(null);
   const [currentPrice, setCurrentPrice] = useState(initialPrice || '');
   const [formValid, setFormValid] = useState(true); // Initialize as true since we have default values
+  const [isDirectionOverridden, setIsDirectionOverridden] = useState(false);
+
+  // Set direction from suggested direction when available
+  useEffect(() => {
+    if (suggestedDirection && suggestedDirection !== direction) {
+      setDirection(suggestedDirection.toUpperCase());
+      setIsDirectionOverridden(false);
+    }
+  }, [suggestedDirection]);
 
   // Derived values
   const [requiredMargin, setRequiredMargin] = useState('0');
@@ -112,7 +121,15 @@ const TradingForm = ({ initialPrice, onTradeSubmit }) => {
   };
 
   const handleDirectionChange = (value) => {
-    setDirection(value);
+    const newDirection = value.toUpperCase();
+    setDirection(newDirection);
+
+    // Check if we're overriding the suggested direction
+    if (suggestedDirection && newDirection !== suggestedDirection.toUpperCase()) {
+      setIsDirectionOverridden(true);
+    } else {
+      setIsDirectionOverridden(false);
+    }
   };
 
   const handleTemplateChange = (e) => {
@@ -154,7 +171,9 @@ const TradingForm = ({ initialPrice, onTradeSubmit }) => {
           template,
           currentPrice: parseFloat(currentPrice || '0'),
           requiredMargin: parseFloat(requiredMargin),
-          liquidationPrice: parseFloat(liquidationPrice)
+          liquidationPrice: parseFloat(liquidationPrice),
+          isDirectionOverridden,
+          suggestedDirection: suggestedDirection ? suggestedDirection.toUpperCase() : null
         });
       }
     } catch (err) {
@@ -174,21 +193,35 @@ const TradingForm = ({ initialPrice, onTradeSubmit }) => {
           </div>
         )}
 
-        <div className="direction-buttons">
-          <button
-            type="button"
-            className={direction === 'LONG' ? 'active' : ''}
-            onClick={() => handleDirectionChange('LONG')}
-          >
-            LONG
-          </button>
-          <button
-            type="button"
-            className={direction === 'SHORT' ? 'active' : ''}
-            onClick={() => handleDirectionChange('SHORT')}
-          >
-            SHORT
-          </button>
+        <div className="direction-section">
+          {suggestedDirection && (
+            <div className="suggested-direction">
+              Suggested Direction: <span className={suggestedDirection.toLowerCase() === 'long' ? 'long-suggestion' : 'short-suggestion'}>
+                {suggestedDirection}
+              </span>
+            </div>
+          )}
+          <div className="direction-buttons">
+            <button
+              type="button"
+              className={`${direction === 'LONG' ? 'active' : ''} ${isDirectionOverridden && direction === 'LONG' ? 'override' : ''}`}
+              onClick={() => handleDirectionChange('LONG')}
+            >
+              LONG
+            </button>
+            <button
+              type="button"
+              className={`${direction === 'SHORT' ? 'active' : ''} ${isDirectionOverridden && direction === 'SHORT' ? 'override' : ''}`}
+              onClick={() => handleDirectionChange('SHORT')}
+            >
+              SHORT
+            </button>
+          </div>
+          {isDirectionOverridden && (
+            <div className="direction-override-warning">
+              ⚠️ You've changed from the suggested direction
+            </div>
+          )}
         </div>
 
         <div className="template-select">

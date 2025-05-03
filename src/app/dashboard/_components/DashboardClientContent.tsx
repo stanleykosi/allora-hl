@@ -105,6 +105,9 @@ export default function DashboardClientContent({
   const [selectedPrediction, setSelectedPrediction] =
     useState<AlloraPrediction | null>(null);
 
+  // Add a separate loading state for the manual refresh button
+  const [isManualRefreshing, setIsManualRefreshing] = useState(false);
+
   // Fetch Hyperliquid Account Info periodically
   const {
     data: accountInfo,
@@ -145,6 +148,16 @@ export default function DashboardClientContent({
   const refreshAllData = useCallback(async () => {
     console.log('Manual refresh of all data triggered');
 
+    // Log the current state of loading flags
+    console.log('Loading states before refresh:', {
+      isManualRefreshing,
+      isLoadingAccountInfo,
+      isLoadingPositions,
+      isLoadingPredictions
+    });
+
+    setIsManualRefreshing(true);
+
     try {
       // Set up refreshes to happen in parallel
       await Promise.all([
@@ -178,8 +191,20 @@ export default function DashboardClientContent({
       console.error('Error refreshing data:', error);
       // If the refresh fails, refresh the page as a fallback
       window.location.reload();
+    } finally {
+      // Force a small delay before resetting the loading state to ensure other state updates have completed
+      setTimeout(() => {
+        setIsManualRefreshing(false);
+        console.log('Manual refresh completed. Loading states:', {
+          isManualRefreshing: false,
+          isLoadingAccountInfo,
+          isLoadingPositions,
+          isLoadingPredictions
+        });
+      }, 500);
     }
-  }, [refreshAccountInfo, refreshPositions, refreshPredictions, positions]);
+  }, [refreshAccountInfo, refreshPositions, refreshPredictions, positions,
+    isManualRefreshing, isLoadingAccountInfo, isLoadingPositions, isLoadingPredictions]);
 
   // Callback function for the PredictionFeed to update the selected prediction
   const handleSelectPrediction = (prediction: AlloraPrediction | null) => {
@@ -203,9 +228,9 @@ export default function DashboardClientContent({
             variant="outline"
             size="sm"
             onClick={refreshAllData}
-            disabled={isLoadingAccountInfo || isLoadingPositions || isLoadingPredictions} // Disable during any fetch
+            disabled={isManualRefreshing} // Only disable during manual refresh
           >
-            <RefreshCw className={`h-4 w-4 mr-2 ${(isLoadingAccountInfo || isLoadingPositions || isLoadingPredictions) ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`h-4 w-4 mr-2 ${isManualRefreshing ? 'animate-spin' : ''}`} />
             Refresh All
           </Button>
         </div>

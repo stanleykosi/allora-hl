@@ -70,6 +70,8 @@ export interface TradeConfirmationDetails {
   estimatedMargin: number;
   estimatedLiqPrice: number;
   currentMarketPrice: number; // Current price for reference
+  isDirectionOverridden?: boolean; // Added: Flag indicating if user overrode the suggested direction
+  suggestedDirection?: "long" | "short"; // Added: The originally suggested direction
 }
 
 interface ConfirmationModalProps {
@@ -89,12 +91,23 @@ const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
   const router = useRouter();
   const [isExecuting, setIsExecuting] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [showRetry, setShowRetry] = useState<boolean>(false);
+
+  // Add a timeout reference to prevent hanging execution
+  const executionTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
 
   // Reset state when modal is closed or tradeDetails change
   useEffect(() => {
     if (!isOpen) {
       setIsExecuting(false);
       setErrorMsg(null);
+      setShowRetry(false);
+
+      // Clear any pending timeout
+      if (executionTimeoutRef.current) {
+        clearTimeout(executionTimeoutRef.current);
+        executionTimeoutRef.current = null;
+      }
     }
   }, [isOpen]);
 
@@ -104,6 +117,14 @@ const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
       // Ensure all states are reset properly before closing
       setIsExecuting(false);
       setErrorMsg(null);
+      setShowRetry(false);
+
+      // Clear any pending timeout
+      if (executionTimeoutRef.current) {
+        clearTimeout(executionTimeoutRef.current);
+        executionTimeoutRef.current = null;
+      }
+
       onOpenChange(false);
     }
   };
@@ -114,6 +135,21 @@ const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
 
     setIsExecuting(true);
     setErrorMsg(null);
+    setShowRetry(false);
+
+    // Set a timeout to prevent the modal from getting stuck
+    executionTimeoutRef.current = setTimeout(() => {
+      if (isExecuting) {
+        setIsExecuting(false);
+        setShowRetry(true);
+        setErrorMsg("Trade execution timed out. The request may still be processing or may have failed. Check your positions before trying again.");
+        toast({
+          title: "Execution Timeout",
+          description: "The trade took too long to execute. You can retry or check your positions first.",
+          variant: "destructive",
+        });
+      }
+    }, 20000); // 20-second timeout
 
     // Variables for logging, initialized with defaults
     let logEntryPrice = 0;
@@ -127,6 +163,14 @@ const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
     try {
       // Extract key trade parameters
       const isBuy = tradeDetails.direction === "long"; // true for long, false for short
+
+      // Log the attempt to help debugging
+      console.log("Attempting to execute trade:", {
+        direction: tradeDetails.direction,
+        size: tradeDetails.size,
+        leverage: tradeDetails.leverage,
+        isBuy
+      });
 
       // CRITICAL FIX: Try several different tick sizes with automatic retry
       // Common tick sizes in crypto markets
@@ -148,33 +192,92 @@ const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
 
           console.log(`Price adjustment for tick ${tick}: ${rawPriceLimit} → ${tickAdjustedPrice} (${priceString})`);
 
-          // Call the Server Action to place the order with this tick-adjusted price
-          const result = await placeMarketOrderAction({
-            assetName: tradeDetails.symbol,
-            isBuy,
-            size: tradeDetails.size,
-            leverage: tradeDetails.leverage,
-            slippageBps: 200, // 2% slippage
-            overridePriceString: priceString // Pass the manually formatted price
+          // Create an AbortController for the fetch request timeout
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 15000); // 15-second API timeout
+
+          try {
+            // Call the Server Action to place the order with this tick-adjusted price
+            const result = await placeMarketOrderAction({
+              assetName: tradeDetails.symbol,
+              isBuy,
+              size: tradeDetails.size,
+              leverage: tradeDetails.leverage,
+              slippageBps: 200, // 2% slippage
+              overridePriceString: priceString // Pass the manually formatted price
+            });
+
+            clearTimeout(timeoutId); // Clear the timeout if request completes
+
+            if (result.isSuccess) {
+              orderResult = result; // Store the successful result
+              successfulTickSize = tick;
+              console.log(`Order successfully placed with tick size ${tick}`);
+              break; // Exit the loop on success
+            }
+          } catch (tickError: any) {
+            clearTimeout(timeoutId); // Clear the timeout on error too
+            
+            // Check if this was an abort error
+            if (tickError.name === 'AbortError') {
+              lastError = "API request timed out. The network may be slow or the server is unresponsive.";
+              console.error("API request timed out:", lastError);
+              throw new Error(lastError); // Exit all retries on timeout
+            }
+            
+            const errorMessage = tickError instanceof Error ? tickError.message : String(tickError);
+            lastError = errorMessage;
+
+            // Only continue retrying if this was a tick size error
+            if (!errorMessage.includes("tick size")) {
+              throw tickError; // Re-throw other errors
+            }
+
+            console.warn(`Failed with tick size ${tick}: ${errorMessage}`);
+            // Continue to the next tick size
+          }
+        } catch (error: unknown) {
+          // Catch unexpected errors during the process
+          console.error("Unexpected error during trade confirmation:", error);
+
+          // Capture the full error details for display
+          let errorMsg = "An unknown error occurred";
+          let errorDetail = "";
+
+          if (error instanceof Error) {
+            errorMsg = error.message;
+            errorDetail = error.stack || "";
+
+            // Try to extract more specific error information if it's wrapped in another message
+            if (errorMsg.includes("API rejected") && errorMsg.includes(":")) {
+              const parts = errorMsg.split(":");
+              if (parts.length > 1) {
+                errorDetail = parts.slice(1).join(":").trim();
+              }
+            }
+          } else {
+            errorMsg = String(error);
+          }
+
+          // Set a more detailed error message for the UI
+          setErrorMsg(`${errorMsg}\n\nFull error details: ${errorDetail || errorMsg}`);
+
+          toast({
+            title: "Trading Error",
+            description: errorMsg,
+            variant: "destructive",
           });
 
-          if (result.isSuccess) {
-            orderResult = result; // Store the successful result
-            successfulTickSize = tick;
-            console.log(`Order successfully placed with tick size ${tick}`);
-            break; // Exit the loop on success
-          }
-        } catch (tickError: any) {
-          const errorMessage = tickError instanceof Error ? tickError.message : String(tickError);
-          lastError = errorMessage;
-
-          // Only continue retrying if this was a tick size error
-          if (!errorMessage.includes("tick size")) {
-            throw tickError; // Re-throw other errors
-          }
-
-          console.warn(`Failed with tick size ${tick}: ${errorMessage}`);
-          // Continue to the next tick size
+          // Log this unexpected failure too
+          await logTradeAction({
+            symbol: tradeDetails.symbol,
+            direction: tradeDetails.direction,
+            size: tradeDetails.size,
+            entryPrice: 0,
+            status: 'failed',
+            hyperliquidOrderId: '', // Empty string instead of null
+            errorMessage: `Unexpected error during confirmation: ${errorMsg}`,
+          });
         }
       }
 
@@ -205,6 +308,12 @@ const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
 
         // First ensure we reset executing state
         setIsExecuting(false);
+
+        // Clear timeout on success
+        if (executionTimeoutRef.current) {
+          clearTimeout(executionTimeoutRef.current);
+          executionTimeoutRef.current = null;
+        }
 
         // Then refresh and close modal
         router.refresh(); // Refresh server data (positions, balance)
@@ -312,6 +421,104 @@ const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
       // Always reset the executing state for unsuccessful trades
       // Successful trades have already reset this and returned early
       setIsExecuting(false);
+
+      // Clear timeout if it still exists
+      if (executionTimeoutRef.current) {
+        clearTimeout(executionTimeoutRef.current);
+        executionTimeoutRef.current = null;
+      }
+    }
+  };
+
+  // Add a simple direct execution function for use when the main one fails or hangs
+  const executeDirectOrder = async () => {
+    if (!masterSwitchEnabled || !tradeDetails) return;
+
+    setIsExecuting(true);
+    setErrorMsg(null);
+    setShowRetry(false);
+
+    try {
+      // Extract key trade parameters
+      const isBuy = tradeDetails.direction === "long"; // true for long, false for short
+      const rawPriceLimit = tradeDetails.priceLimitValue;
+      
+      // Use a single tick size - 0.5 which is most common for BTC
+      const tickSize = 0.5;
+      const tickAdjustedPrice = Math.round(rawPriceLimit / tickSize) * tickSize;
+      const priceString = tickAdjustedPrice.toFixed(1); // BTC uses 1 decimal place
+      
+      console.log("Executing direct order with parameters:", {
+        asset: tradeDetails.symbol,
+        direction: tradeDetails.direction,
+        size: tradeDetails.size,
+        price: priceString
+      });
+
+      // Call the Server Action directly with minimal options
+      const result = await placeMarketOrderAction({
+        assetName: tradeDetails.symbol,
+        isBuy,
+        size: tradeDetails.size,
+        leverage: tradeDetails.leverage,
+        overridePriceString: priceString
+      });
+
+      if (result.isSuccess) {
+        toast({
+          title: "Trade Executed Successfully",
+          description: `Order ID: ${result.data.oid}. Status: ${result.data.status}.`,
+          variant: "default",
+        });
+        
+        // Log success
+        await logTradeAction({
+          symbol: tradeDetails.symbol,
+          direction: tradeDetails.direction,
+          size: tradeDetails.size,
+          entryPrice: result.data.avgPx ? parseFloat(result.data.avgPx) : 0,
+          status: result.data.status || 'executed',
+          hyperliquidOrderId: result.data.oid.toString(),
+          errorMessage: "",
+        });
+        
+        // Close modal and refresh
+        setIsExecuting(false);
+        router.refresh();
+        onOpenChange(false);
+      } else {
+        // Handle failure
+        setErrorMsg(`Direct order failed: ${result.message || "Unknown error"}`);
+        
+        // Log failure
+        await logTradeAction({
+          symbol: tradeDetails.symbol,
+          direction: tradeDetails.direction,
+          size: tradeDetails.size,
+          entryPrice: 0,
+          status: 'failed',
+          hyperliquidOrderId: '',
+          errorMessage: `Direct order error: ${result.message}`,
+        });
+      }
+    } catch (error) {
+      // Handle unexpected errors
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      setErrorMsg(`Error: ${errorMessage}`);
+      console.error("Direct order error:", error);
+      
+      // Log failure
+      await logTradeAction({
+        symbol: tradeDetails.symbol,
+        direction: tradeDetails.direction,
+        size: tradeDetails.size,
+        entryPrice: 0,
+        status: 'failed',
+        hyperliquidOrderId: '',
+        errorMessage: `Direct order exception: ${errorMessage}`,
+      });
+    } finally {
+      setIsExecuting(false);
     }
   };
 
@@ -321,57 +528,87 @@ const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
 
   return (
     <AlertDialog open={isOpen} onOpenChange={handleClose}>
-      <AlertDialogContent>
+      <AlertDialogContent className="max-w-md overflow-y-auto max-h-[90vh]">
         <AlertDialogHeader>
-          <AlertDialogTitle className="flex items-center gap-2">
-            <AlertTriangle className="h-6 w-6 text-yellow-500" /> Confirm Trade Execution
+          <AlertDialogTitle className="flex items-center">
+            <AlertTriangle className="text-yellow-500 w-5 h-5 mr-2" />
+            Confirm Your Trade
           </AlertDialogTitle>
-          <AlertDialogDescription>
-            Please carefully review the details below before executing the trade.
-            Market orders execute immediately at the best available price and may experience slippage.
+          <AlertDialogDescription className="text-muted-foreground text-sm">
+            Review your trade details carefully before executing. All trades are
+            final and cannot be reversed.
           </AlertDialogDescription>
         </AlertDialogHeader>
+        {tradeDetails && (
+          <div className="space-y-4 py-2">
+            <div className="border rounded-md p-4 space-y-3">
+              <div className="flex justify-between">
+                <span className="text-sm font-medium">Symbol:</span>
+                <span className="text-sm">{tradeDetails.symbol}</span>
+              </div>
 
-        {/* Trade Details Section */}
-        <div className="my-4 space-y-2 border-t border-b py-4">
-          <h4 className="font-semibold text-lg mb-2">Trade Details:</h4>
-          <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
-            <span className="text-muted-foreground">Asset:</span>
-            <span className="font-medium">{tradeDetails.symbol}</span>
+              <div className="flex justify-between items-center">
+                <span className="text-sm font-medium">Direction:</span>
+                <div className="flex items-center">
+                  <Badge
+                    variant={tradeDetails.direction === 'long' ? 'default' : 'destructive'}
+                    className={tradeDetails.direction === 'long' ? 'bg-green-600' : ''}
+                  >
+                    {tradeDetails.direction.toUpperCase()}
+                  </Badge>
+                </div>
+              </div>
 
-            <span className="text-muted-foreground">Direction:</span>
-            <span className={`font-medium ${tradeDetails.direction === 'long' ? 'text-green-600' : 'text-red-600'}`}>
-              {tradeDetails.direction.toUpperCase()}
-            </span>
+              {/* Added: Warning about direction override */}
+              {tradeDetails.isDirectionOverridden && tradeDetails.suggestedDirection && (
+                <div className="flex items-start mt-1 bg-yellow-50 dark:bg-yellow-950/30 p-2 rounded border border-yellow-200 dark:border-yellow-800">
+                  <AlertTriangle className="text-yellow-500 w-4 h-4 mr-2 mt-0.5 flex-shrink-0" />
+                  <p className="text-xs text-yellow-700 dark:text-yellow-400">
+                    You've overridden the suggested direction ({tradeDetails.suggestedDirection.toUpperCase()})
+                    based on the prediction. This trade may go against the Allora signal.
+                  </p>
+                </div>
+              )}
 
-            <span className="text-muted-foreground">Size:</span>
-            <span className="font-medium">{formatNumber(tradeDetails.size, 6)} {tradeDetails.symbol.split('-')[0]}</span>
+              <div className="flex justify-between">
+                <span className="text-sm font-medium">Size:</span>
+                <span className="text-sm">{formatNumber(tradeDetails.size, 6)} {tradeDetails.symbol.split('-')[0]}</span>
+              </div>
 
-            <span className="text-muted-foreground">Leverage (Est.):</span>
-            <span className="font-medium">{formatNumber(tradeDetails.leverage, 1)}x</span>
+              <div className="flex justify-between">
+                <span className="text-sm font-medium">Leverage (Est.):</span>
+                <span className="text-sm">{formatNumber(tradeDetails.leverage, 1)}x</span>
+              </div>
 
-            <span className="text-muted-foreground">Current Price:</span>
-            <span className="font-medium">{formatCurrency(tradeDetails.currentMarketPrice)}</span>
+              <div className="flex justify-between">
+                <span className="text-sm font-medium">Current Price:</span>
+                <span className="text-sm">{formatCurrency(tradeDetails.currentMarketPrice)}</span>
+              </div>
 
-            <span className="text-muted-foreground">Order Type:</span>
-            <span className="font-medium">Market (IOC Limit)</span>
+              <div className="flex justify-between">
+                <span className="text-sm font-medium">Order Type:</span>
+                <span className="text-sm">Market (IOC Limit)</span>
+              </div>
 
-            <span className="text-muted-foreground">Limit Price Boundary:</span>
-            <span className="font-medium">{tradeDetails.priceLimit}</span>
-          </div>
-          <div className="mt-3 space-y-1 border-t pt-2 text-muted-foreground text-xs">
-            <h5 className="font-medium text-foreground mb-1">Estimates (Approximate):</h5>
-            <div className="flex justify-between">
-              <span>Required Margin:</span>
-              <span className="font-medium text-foreground">{formatCurrency(tradeDetails.estimatedMargin)}</span>
+              <div className="flex justify-between">
+                <span className="text-sm font-medium">Limit Price Boundary:</span>
+                <span className="text-sm">{tradeDetails.priceLimit}</span>
+              </div>
             </div>
-            <div className="flex justify-between">
-              <span>Liquidation Price:</span>
-              <span className="font-medium text-foreground">{formatCurrency(tradeDetails.estimatedLiqPrice)}</span>
+            <div className="mt-3 space-y-1 border-t pt-2 text-muted-foreground text-xs">
+              <h5 className="font-medium text-foreground mb-1">Estimates (Approximate):</h5>
+              <div className="flex justify-between">
+                <span>Required Margin:</span>
+                <span className="font-medium text-foreground">{formatCurrency(tradeDetails.estimatedMargin)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Liquidation Price:</span>
+                <span className="font-medium text-foreground">{formatCurrency(tradeDetails.estimatedLiqPrice)}</span>
+              </div>
+              <p className="text-xs italic text-center pt-1">Estimates exclude fees, funding, and slippage.</p>
             </div>
-            <p className="text-xs italic text-center pt-1">Estimates exclude fees, funding, and slippage.</p>
           </div>
-        </div>
+        )}
 
         {/* Risk Warning */}
         <div className="text-sm text-destructive font-medium p-3 border border-destructive bg-destructive/10 rounded-md">
@@ -411,24 +648,33 @@ const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
           </div>
         )}
 
-
         <AlertDialogFooter>
           <AlertDialogCancel onClick={handleClose} disabled={isExecuting}>
             Cancel
           </AlertDialogCancel>
-          <Button
-            onClick={handleConfirm}
-            disabled={!masterSwitchEnabled || isExecuting}
-            aria-disabled={!masterSwitchEnabled || isExecuting}
-            className={!masterSwitchEnabled ? "bg-gray-500 hover:bg-gray-500 cursor-not-allowed" : "bg-primary hover:bg-primary/90"}
-            variant={!masterSwitchEnabled ? "secondary" : "default"}
-          >
-            {isExecuting
-              ? "Executing..."
-              : !masterSwitchEnabled
-                ? "Trading Disabled"
-                : "Confirm Trade"}
-          </Button>
+          {showRetry ? (
+            <Button
+              onClick={handleConfirm}
+              variant="default"
+              className="bg-yellow-600 hover:bg-yellow-700"
+            >
+              Retry Trade
+            </Button>
+          ) : (
+            <Button
+              onClick={handleConfirm}
+              disabled={!masterSwitchEnabled || isExecuting}
+              aria-disabled={!masterSwitchEnabled || isExecuting}
+              className={!masterSwitchEnabled ? "bg-gray-500 hover:bg-gray-500 cursor-not-allowed" : "bg-primary hover:bg-primary/90"}
+              variant={!masterSwitchEnabled ? "secondary" : "default"}
+            >
+              {isExecuting
+                ? "Executing..."
+                : !masterSwitchEnabled
+                  ? "Trading Disabled"
+                  : "Confirm Trade"}
+            </Button>
+          )}
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>

@@ -365,6 +365,7 @@ export async function placeMarketOrderAction(params: {
   console.log(`Executing placeMarketOrderAction for ${assetName}: ${isBuy ? "BUY" : "SELL"} ${size} with ${leverage}x leverage`);
 
   try {
+    console.log("Setting up clients for trade execution...");
     const { walletClient, config } = setupClients();
 
     // Ensure wallet client is available (API secret must be configured)
@@ -376,6 +377,8 @@ export async function placeMarketOrderAction(params: {
         error: "Wallet client setup failed.",
       };
     }
+
+    console.log("Successfully set up clients. Account address:", config.account.address);
 
     // Initialize with default BTC index but allow it to be changed if needed
     let assetIndex = BTC_ASSET_INDEX; // Use the constant as starting point 

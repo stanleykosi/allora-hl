@@ -309,6 +309,10 @@ const TradePanel: React.FC<TradePanelProps> = ({ selectedPrediction }) => {
       return;
     }
 
+    // ADDED: Get suggested direction to check if user overrode it
+    const suggestedDir = suggestTradeDirection(selectedPrediction.price, currentPrice);
+    const isDirectionOverridden = suggestedDir !== direction;
+
     // Calculate a wide price limit for the market order (e.g., +/- 10%)
     // This ensures the IOC order executes as a market order
     const slippagePercent = 0.10; // 10%
@@ -382,7 +386,9 @@ const TradePanel: React.FC<TradePanelProps> = ({ selectedPrediction }) => {
       estimatedMargin,
       estimatedLiqPrice,
       priceLimit: formattedPriceLimit, // Formatted for display
-      priceLimitValue: rawPriceLimit  // Raw numeric value for calculations
+      priceLimitValue: rawPriceLimit,  // Raw numeric value for calculations
+      isDirectionOverridden: isDirectionOverridden, // Added flag to indicate direction override
+      suggestedDirection: suggestedDir || undefined  // Added suggested direction for reference
     };
 
     console.log("Opening confirmation modal with details:", details);
@@ -443,12 +449,45 @@ const TradePanel: React.FC<TradePanelProps> = ({ selectedPrediction }) => {
           {/* Suggested Direction */}
           <div className="min-h-[20px]"> {/* Added min-height */}
             {direction && (
-              <p className="text-sm">
-                <span className="font-medium">Suggested Direction:</span>{" "}
-                <Badge variant={direction === 'long' ? 'default' : 'destructive'} className={direction === 'long' ? 'bg-green-600 hover:bg-green-700' : ''}>
-                  {direction.toUpperCase()}
-                </Badge>
-              </p>
+              <div className="space-y-2">
+                <p className="text-sm">
+                  <span className="font-medium">Suggested Direction:</span>{" "}
+                  <Badge variant={direction === 'long' ? 'default' : 'destructive'} className={direction === 'long' ? 'bg-green-600 hover:bg-green-700' : ''}>
+                    {direction.toUpperCase()}
+                  </Badge>
+                </p>
+
+                {/* Added direction override buttons */}
+                <div className="flex space-x-2">
+                  <Button
+                    size="sm"
+                    variant={direction === 'long' ? 'default' : 'outline'}
+                    className={direction === 'long' ? 'bg-green-600 hover:bg-green-700' : ''}
+                    onClick={() => setDirection('long')}
+                  >
+                    LONG
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={direction === 'short' ? 'destructive' : 'outline'}
+                    onClick={() => setDirection('short')}
+                  >
+                    SHORT
+                  </Button>
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Info className="h-4 w-4 text-muted-foreground cursor-help mt-2" />
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p className="text-xs max-w-xs">
+                          You can manually override the suggested direction based on your own analysis.
+                        </p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                </div>
+              </div>
             )}
           </div>
 
