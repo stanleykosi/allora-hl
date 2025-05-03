@@ -118,6 +118,9 @@ const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
     let logOrderId = "";
     let logErrorMessage = "";
 
+    // Define orderResult outside the try block so it's accessible in finally
+    let orderResult: ActionState<HyperliquidOrderResult> | null = null;
+
     try {
       // Extract key trade parameters
       const isBuy = tradeDetails.direction === "long"; // true for long, false for short
@@ -125,7 +128,6 @@ const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
       // CRITICAL FIX: Try several different tick sizes with automatic retry
       // Common tick sizes in crypto markets
       const POSSIBLE_TICK_SIZES = [0.5, 0.1, 1.0, 5.0, 10.0];
-      let orderResult = null;
       let successfulTickSize = null;
       let lastError = "";
 
@@ -154,7 +156,7 @@ const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
           });
 
           if (result.isSuccess) {
-            orderResult = result;
+            orderResult = result; // Store the successful result
             successfulTickSize = tick;
             console.log(`Order successfully placed with tick size ${tick}`);
             break; // Exit the loop on success
@@ -175,30 +177,30 @@ const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
 
       // Process the result if we found a working tick size
       if (orderResult && orderResult.isSuccess) {
-        const result = orderResult;
         console.log(`Trade executed successfully with tick size: ${successfulTickSize}`);
 
-        logOrderId = result.data.oid.toString();
-        if (result.data.status === 'filled' && result.data.avgPx) {
+        logOrderId = orderResult.data.oid.toString();
+        if (orderResult.data.status === 'filled' && orderResult.data.avgPx) {
           logStatus = 'filled';
-          logEntryPrice = parseFloat(result.data.avgPx); // Use actual fill price
+          logEntryPrice = parseFloat(orderResult.data.avgPx); // Use actual fill price
           logErrorMessage = ""; // No error on success
           toast({
             title: "Trade Executed Successfully",
-            description: `Order ID: ${result.data.oid}. Average Fill Price: ${formatCurrency(logEntryPrice)}.`,
+            description: `Order ID: ${orderResult.data.oid}. Average Fill Price: ${formatCurrency(logEntryPrice)}.`,
             variant: "default", // Use default for success
           });
         } else {
           // Handle cases like 'resting' IOC (partial/no fill)
           logStatus = 'resting_ioc';
-          logErrorMessage = result.message; // Provide context from the action
+          logErrorMessage = orderResult.message; // Provide context from the action
           toast({
             title: "Trade Placed (IOC)",
-            description: `Order ID: ${result.data.oid}. Status: ${result.data.status}. ${result.message}`,
+            description: `Order ID: ${orderResult.data.oid}. Status: ${orderResult.data.status}. ${orderResult.message}`,
             variant: "default", // Still default style, but message indicates potential issue
           });
         }
         router.refresh(); // Refresh server data (positions, balance)
+        onOpenChange(false); // Close modal on success
       } else {
         // All tick sizes failed
         setErrorMsg(`Failed to place order with any tick size: ${lastError}`);
@@ -228,11 +230,6 @@ const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
           description: "Failed to save trade log entry: " + logResult.message,
           variant: "destructive",
         });
-      }
-
-      // Close modal only on successful fill or placement, keep open on direct failure to show error
-      if (orderResult && orderResult.isSuccess) {
-        onOpenChange(false);
       }
 
     } catch (error: unknown) {
@@ -278,9 +275,13 @@ const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
         errorMessage: `Unexpected error during confirmation: ${errorMsg}`,
       });
     } finally {
-      // Only set executing to false if the component is still mounted and the modal didn't close
-      if (isOpen) { // Check if modal is still intended to be open
-        setIsExecuting(false);
+      // Always reset the executing state
+      setIsExecuting(false);
+
+      // Force close the modal if we have a successful order result
+      if (orderResult && orderResult.isSuccess) {
+        console.log("Closing modal after successful order");
+        onOpenChange(false);
       }
     }
   };
