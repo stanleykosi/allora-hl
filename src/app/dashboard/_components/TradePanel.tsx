@@ -116,6 +116,9 @@ const TradePanel: React.FC<TradePanelProps> = ({ selectedPrediction }) => {
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
   const [modalDetails, setModalDetails] = useState<TradeConfirmationDetails | null>(null);
 
+  // Add lastValidPrice state to persist price between refreshes
+  const [lastValidPrice, setLastValidPrice] = useState<number | null>(null);
+
   // Price State
   const {
     data: priceData,
@@ -126,9 +129,18 @@ const TradePanel: React.FC<TradePanelProps> = ({ selectedPrediction }) => {
     settings.accountRefreshInterval, // Use account refresh interval for price
     null, // No initial price needed from server prop
   );
+
+  // Use lastValidPrice as fallback when current price is temporarily unavailable
   const currentPrice = useMemo(() => {
-    return priceData?.price ? parseFloat(priceData.price) : null;
-  }, [priceData]);
+    const price = priceData?.price ? parseFloat(priceData.price) : null;
+    // If we get a valid price, update our lastValidPrice
+    if (price !== null) {
+      setLastValidPrice(price);
+      return price;
+    }
+    // Otherwise return the last valid price we had
+    return lastValidPrice;
+  }, [priceData, lastValidPrice]);
 
   // Estimate State
   const [estimatedMargin, setEstimatedMargin] = useState<number | null>(null);
@@ -174,8 +186,10 @@ const TradePanel: React.FC<TradePanelProps> = ({ selectedPrediction }) => {
     if (selectedPrediction && currentPrice) {
       const suggestedDir = suggestTradeDirection(selectedPrediction.price, currentPrice);
       setDirection(suggestedDir); // Allow user to override later if needed
-    } else {
-      setDirection(null); // Reset if prediction or price is missing
+    }
+    // Only reset direction if we have no prediction - keep last direction during price updates
+    else if (!selectedPrediction) {
+      setDirection(null);
     }
   }, [selectedPrediction, currentPrice]);
 
@@ -189,11 +203,18 @@ const TradePanel: React.FC<TradePanelProps> = ({ selectedPrediction }) => {
       const liqPrice = calculateEstimatedLiquidationPrice(currentPrice, leverageNum, direction);
       setEstimatedMargin(margin);
       setEstimatedLiqPrice(liqPrice);
-    } else {
+    } else if (currentPrice === null && lastValidPrice && sizeNum > 0 && leverageNum > 0 && direction) {
+      // If current price is temporarily unavailable, use last valid price for calculations
+      const margin = calculateEstimatedMargin(lastValidPrice, sizeNum, leverageNum);
+      const liqPrice = calculateEstimatedLiquidationPrice(lastValidPrice, leverageNum, direction);
+      setEstimatedMargin(margin);
+      setEstimatedLiqPrice(liqPrice);
+    } else if (!sizeNum || !leverageNum || !direction) {
+      // Only reset estimates if core inputs are invalid
       setEstimatedMargin(null);
       setEstimatedLiqPrice(null);
     }
-  }, [tradeSize, leverage, currentPrice, direction]);
+  }, [tradeSize, leverage, currentPrice, lastValidPrice, direction]);
 
   // Handler for template selection
   const handleTemplateChange = (templateId: string) => {
@@ -210,15 +231,38 @@ const TradePanel: React.FC<TradePanelProps> = ({ selectedPrediction }) => {
     }
   };
 
-  // Validation for enabling the review button
+  // Validation for enabling the review button - add debug logging
   const isReviewEnabled = useMemo(() => {
     const sizeNum = parseFloat(tradeSize);
     const leverageNum = parseFloat(leverage);
+
+    // For debugging purposes - log which condition is failing
+    const conditions = {
+      selectedPrediction: selectedPrediction !== null,
+      sizeValid: sizeNum > 0,
+      leverageValid: leverageNum > 0,
+      notLoadingPrice: !isLoadingPrice || lastValidPrice !== null,
+      hasPriceData: currentPrice !== null,
+      hasDirection: direction !== null,
+      hasEstimatedMargin: estimatedMargin !== null,
+      hasEstimatedLiqPrice: estimatedLiqPrice !== null,
+      tradeSwitchEnabled: settings.tradeSwitchEnabled
+    };
+
+    // Only log if button is disabled to help troubleshoot
+    if (!Object.values(conditions).every(Boolean)) {
+      console.debug("Review button disabled because:",
+        Object.entries(conditions)
+          .filter(([_, value]) => !value)
+          .map(([key]) => key)
+      );
+    }
+
     return (
       selectedPrediction !== null &&
       sizeNum > 0 &&
       leverageNum > 0 &&
-      !isLoadingPrice &&
+      (!isLoadingPrice || lastValidPrice !== null) && // Allow button to stay enabled during price refresh
       currentPrice !== null &&
       direction !== null &&
       estimatedMargin !== null &&
@@ -230,6 +274,7 @@ const TradePanel: React.FC<TradePanelProps> = ({ selectedPrediction }) => {
     tradeSize,
     leverage,
     isLoadingPrice,
+    lastValidPrice,
     currentPrice,
     direction,
     estimatedMargin,
@@ -273,9 +318,39 @@ const TradePanel: React.FC<TradePanelProps> = ({ selectedPrediction }) => {
       ? currentPrice * (1 + slippagePercent) // Higher price for buys
       : currentPrice * (1 - slippagePercent); // Lower price for sells
 
-    // CRITICAL FIX: Round to the nearest 0.5 tick size to match Hyperliquid requirements
+    // CRITICAL FIX: Use enhanced method to ensure exact compliance with Hyperliquid tick size
     const TICK_SIZE = 0.5;
+
+    // First round to the nearest tick size
     rawPriceLimit = Math.round(rawPriceLimit / TICK_SIZE) * TICK_SIZE;
+
+    // Force exactly one decimal place - critical for Hyperliquid
+    rawPriceLimit = Math.round(rawPriceLimit * 10) / 10;
+
+    // Ensure we're at a valid tick by checking remainder
+    if ((rawPriceLimit * 10) % 5 !== 0) {
+      console.error("Price not at valid tick increment after initial adjustment:", rawPriceLimit);
+      // Force correction to nearest valid tick
+      rawPriceLimit = Math.round(rawPriceLimit / TICK_SIZE) * TICK_SIZE;
+      // Force one decimal again
+      rawPriceLimit = Math.round(rawPriceLimit * 10) / 10;
+    }
+
+    // Convert to string with exactly one decimal place and back to number for final validation
+    const priceString = rawPriceLimit.toFixed(1);
+    rawPriceLimit = parseFloat(priceString);
+
+    // Final validation
+    const tickCheck = (rawPriceLimit * 10) % 5;
+    if (tickCheck !== 0) {
+      console.error(`CRITICAL ERROR: Price ${rawPriceLimit} is not at a valid tick increment. Remainder: ${tickCheck}`);
+      toast({
+        title: "Price Error",
+        description: "Unable to generate a valid price that meets Hyperliquid's tick size requirements.",
+        variant: "destructive",
+      });
+      return;
+    }
 
     // Log the tick size adjustment details
     console.log("Price limit adjusted to tick size:", {
@@ -283,7 +358,8 @@ const TradePanel: React.FC<TradePanelProps> = ({ selectedPrediction }) => {
       currentPrice,
       slippagePercent,
       rawPriceLimit,
-      divisibleByTickSize: rawPriceLimit % TICK_SIZE === 0
+      divisibleByTickSize: (rawPriceLimit * 10) % 5 === 0,
+      hasOneDecimalPlace: rawPriceLimit.toFixed(1) === rawPriceLimit.toString()
     });
 
     // Format for display - use number formatting with precision and add dollar sign explicitly

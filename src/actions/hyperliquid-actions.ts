@@ -349,6 +349,7 @@ async function logTradeAction(params: {
  * @param {number} params.slippage Bps - The allowed slippage percentage (e.g., 0.05 for 5% slippage) to set the limit price boundary. Default 1000 Bps (10%)
  * @param {number} params.leverage - The leverage to use for the position (e.g., 10.0 for 10x leverage).
  * @param {string | null} [params.cloid] - Optional Client Order ID (must be a 16-byte hex string if provided).
+ * @param {string | null} [params.overridePriceString] - Optional override price string to use instead of calculating.
  * @returns {Promise<ActionState<HyperliquidOrderResult>>} An ActionState object containing the simplified order result on success, or an error message on failure.
  */
 export async function placeMarketOrderAction(params: {
@@ -358,8 +359,9 @@ export async function placeMarketOrderAction(params: {
   slippageBps?: number; // Added slippage parameter
   leverage?: number; // Added leverage parameter
   cloid?: Hex | null;
+  overridePriceString?: string; // Add parameter to override calculated price
 }): Promise<ActionState<HyperliquidOrderResult>> {
-  const { assetName, isBuy, size, slippageBps = 1000, leverage = 10, cloid } = params; // Default leverage 10x
+  const { assetName, isBuy, size, slippageBps = 1000, leverage = 10, cloid, overridePriceString } = params; // Default leverage 10x
   console.log(`Executing placeMarketOrderAction for ${assetName}: ${isBuy ? "BUY" : "SELL"} ${size} with ${leverage}x leverage`);
 
   try {
@@ -412,6 +414,7 @@ export async function placeMarketOrderAction(params: {
     // CRITICAL FIX: Get the EXACT reference price from Hyperliquid API
     // This ensures we're using the correct price that matches Hyperliquid's expectations
     let currentPrice = 0;
+    let tickSize = 0.5; // Default tick size, will be overridden by actual value from API
 
     try {
       // Get the latest price directly from Hyperliquid API
@@ -421,7 +424,9 @@ export async function placeMarketOrderAction(params: {
       // Log the full assets list for debugging
       console.log("Available Hyperliquid assets with prices:");
       meta.universe.forEach((asset, idx) => {
-        console.log(`Asset ${idx}: ${asset.name} - $${assetCtxs[idx]?.markPx || 'no price'}`);
+        // Safely access possible tickSize property using optional chaining and type assertion
+        const tickSizeValue = (asset as any)?.tickSize || 'unknown';
+        console.log(`Asset ${idx}: ${asset.name} - $${assetCtxs[idx]?.markPx || 'no price'} - Tick Size: ${tickSizeValue}`);
       });
 
       // IMPORTANT: On testnet, asset names may be mismatched
@@ -434,6 +439,11 @@ export async function placeMarketOrderAction(params: {
         if (asset.name === "BTC") {
           btcIndex = idx;
           console.log(`Found asset named BTC at index ${idx}`);
+          // Store the tick size if available - safely access with type assertion
+          if ((asset as any)?.tickSize) {
+            tickSize = parseFloat((asset as any).tickSize);
+            console.log(`Found tick size for BTC: ${tickSize}`);
+          }
         }
 
         // Also check for BTC-like prices (should be around $97K, not $150)
@@ -441,6 +451,11 @@ export async function placeMarketOrderAction(params: {
         if (price > 10000) { // BTC should be >$10K - SOL won't be
           btcByPrice = idx;
           console.log(`Found asset with BTC-like price ($${price}) at index ${idx}`);
+          // If we found by price, also store the tick size - safely access with type assertion
+          if ((asset as any)?.tickSize && btcIndex === -1) { // Only override if we haven't found by name
+            tickSize = parseFloat((asset as any).tickSize);
+            console.log(`Found tick size by price detection: ${tickSize}`);
+          }
         }
       });
 
@@ -458,6 +473,16 @@ export async function placeMarketOrderAction(params: {
         // CRITICAL: Choose the asset with BTC-like price regardless of name on testnet
         console.log(`OVERRIDE: Using price-based detection: index ${btcByPrice} for BTC`);
         btcIndex = btcByPrice;
+
+        // Also use the tick size from the price-based detection
+        const pricedBasedAsset = meta.universe[btcByPrice];
+        if (pricedBasedAsset) {
+          // Safely access tickSize with type assertion
+          if ((pricedBasedAsset as any)?.tickSize) {
+            tickSize = parseFloat((pricedBasedAsset as any).tickSize);
+            console.log(`Using tick size from price-based detection: ${tickSize}`);
+          }
+        }
       }
 
       // Use the selected index
@@ -472,6 +497,18 @@ export async function placeMarketOrderAction(params: {
 
           // Update assetIndex to match what we found
           assetIndex = btcIndex;
+
+          // Final check for tick size based on the selected asset
+          const selectedAsset = meta.universe[btcIndex];
+          if (selectedAsset) {
+            // Safely access tickSize with type assertion
+            if ((selectedAsset as any)?.tickSize) {
+              tickSize = parseFloat((selectedAsset as any).tickSize);
+              console.log(`Using final tick size for trading: ${tickSize}`);
+            } else {
+              console.warn(`No tick size found for asset at index ${btcIndex}, using default: ${tickSize}`);
+            }
+          }
         } else {
           throw new Error("Invalid or zero BTC price from Hyperliquid");
         }
@@ -483,6 +520,7 @@ export async function placeMarketOrderAction(params: {
       console.error("Failed to fetch BTC price:", priceError);
       // FALLBACK: Use reasonable BTC price anyway to ensure trading works
       currentPrice = 96975; // Current BTC price ~$97k
+      console.warn(`Using fallback price $${currentPrice} and tick size ${tickSize}`);
     }
 
     // Check minimum order value ($10) with the fixed price
@@ -501,19 +539,59 @@ export async function placeMarketOrderAction(params: {
     // Use a MUCH smaller slippage (2% instead of 10%) to stay within Hyperliquid's 80% limit
     // This ensures the price is reasonable and won't be rejected
     let priceString;
-    const TICK_SIZE = 0.5;
+    const TICK_SIZE = tickSize; // Use the dynamically determined tick size instead of hardcoding 0.5
 
-    if (isBuy) {
-      // For BUY orders, add 2% to reference price (within Hyperliquid's limits)
-      const buyPrice = Math.ceil(currentPrice * 1.02 / TICK_SIZE) * TICK_SIZE;
-      priceString = buyPrice.toFixed(1);
+    // If an override price string is provided, use it directly instead of calculating
+    if (overridePriceString) {
+      priceString = overridePriceString;
+      console.log(`Using override price string: ${priceString} instead of calculating from reference price: ${currentPrice}`);
     } else {
-      // For SELL orders, subtract 2% from reference price (within Hyperliquid's limits)
-      const sellPrice = Math.floor(currentPrice * 0.98 / TICK_SIZE) * TICK_SIZE;
-      priceString = sellPrice.toFixed(1);
-    }
+      // Regular price calculation logic
+      if (isBuy) {
+        // For BUY orders, add 2% to reference price (within Hyperliquid's limits)
+        // First multiply by 10, round to nearest integer, then divide by 10 to get a value with one decimal place
+        let buyPrice = Math.ceil(currentPrice * 1.02 / TICK_SIZE) * TICK_SIZE;
+        
+        // Force exactly one decimal place - critical for Hyperliquid
+        buyPrice = Math.round(buyPrice * 10) / 10;
+        
+        // Ensure we're at a valid tick by checking remainder
+        if ((buyPrice / TICK_SIZE) % 1 !== 0) {
+          buyPrice = Math.ceil(buyPrice / TICK_SIZE) * TICK_SIZE;
+        }
+        
+        // Convert to string with exactly one decimal place
+        priceString = buyPrice.toFixed(1);
+      } else {
+        // For SELL orders, subtract 2% from reference price (within Hyperliquid's limits)
+        let sellPrice = Math.floor(currentPrice * 0.98 / TICK_SIZE) * TICK_SIZE;
+        
+        // Force exactly one decimal place - critical for Hyperliquid
+        sellPrice = Math.round(sellPrice * 10) / 10;
+        
+        // Ensure we're at a valid tick by checking remainder
+        if ((sellPrice / TICK_SIZE) % 1 !== 0) {
+          sellPrice = Math.floor(sellPrice / TICK_SIZE) * TICK_SIZE;
+        }
+        
+        // Convert to string with exactly one decimal place
+        priceString = sellPrice.toFixed(1);
+      }
 
-    console.log(`Using Hyperliquid-compatible price for ${isBuy ? "BUY" : "SELL"}: ${priceString} (reference: ${currentPrice})`);
+      // Double-check the price is valid by parsing and verifying the tick size directly
+      const finalPrice = parseFloat(priceString);
+      const tickCheck = (finalPrice / TICK_SIZE) % 1;
+      
+      if (Math.abs(tickCheck) > 0.0001) { // Use small epsilon for floating point comparison
+        console.error(`CRITICAL ERROR: Final price ${priceString} (${finalPrice}) is not at a valid tick increment. Remainder: ${tickCheck}, Tick Size: ${TICK_SIZE}`);
+        // Emergency correction
+        const correctedPrice = Math.round(finalPrice / TICK_SIZE) * TICK_SIZE;
+        priceString = correctedPrice.toFixed(1);
+        console.log(`Emergency correction to price: ${priceString}`);
+      }
+    }
+    
+    console.log(`Using Hyperliquid-compatible price for ${isBuy ? "BUY" : "SELL"}: ${priceString} (reference: ${currentPrice}, tick size: ${TICK_SIZE})`);
 
     const sizeString = size.toString();
 
@@ -522,7 +600,7 @@ export async function placeMarketOrderAction(params: {
       Direction: ${isBuy ? "BUY" : "SELL"}
       Size: ${sizeString} ${assetName}
       Current Price: ${currentPrice}
-      Limit Price: ${priceString} (raw: ${currentPrice}, adjusted to tick size: ${currentPrice})
+      Limit Price: ${priceString} (raw: ${currentPrice}, adjusted to tick size: ${TICK_SIZE})
       Leverage: ${leverage}x
       Minimum Value Check: ${orderValue.toFixed(2)} USD (minimum: $10)
     `);

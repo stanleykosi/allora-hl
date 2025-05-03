@@ -122,44 +122,67 @@ const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
       // Extract key trade parameters
       const isBuy = tradeDetails.direction === "long"; // true for long, false for short
 
-      // CRITICAL FIX: Round the price limit to the nearest 0.5 tick size before passing to API
-      const TICK_SIZE = 0.5;
-      const rawPriceLimit = tradeDetails.priceLimitValue;
-      const tickAdjustedPrice = Math.round(rawPriceLimit / TICK_SIZE) * TICK_SIZE;
+      // CRITICAL FIX: Try several different tick sizes with automatic retry
+      // Common tick sizes in crypto markets
+      const POSSIBLE_TICK_SIZES = [0.5, 0.1, 1.0, 5.0, 10.0];
+      let orderResult = null;
+      let successfulTickSize = null;
+      let lastError = "";
 
-      console.log("Price limit tick adjustment:", {
-        original: rawPriceLimit,
-        adjusted: tickAdjustedPrice,
-        divisibleByHalf: tickAdjustedPrice % TICK_SIZE === 0
-      });
+      for (const tick of POSSIBLE_TICK_SIZES) {
+        try {
+          console.log(`Trying to place order with tick size: ${tick}`);
 
-      // Log details before executing trade
-      console.log("Placing order with params:", {
-        assetName: tradeDetails.symbol,
-        isBuy,
-        size: tradeDetails.size,
-        rawPriceLimit: rawPriceLimit,
-        adjustedPriceLimit: tickAdjustedPrice,
-        currentMarketPrice: tradeDetails.currentMarketPrice
-      });
+          // Calculate price using this tick size
+          const rawPriceLimit = tradeDetails.priceLimitValue;
+          const tickAdjustedPrice = Math.round(rawPriceLimit / tick) * tick;
 
-      // Call the Server Action to place the order
-      const result: ActionState<HyperliquidOrderResult> = await placeMarketOrderAction({
-        assetName: tradeDetails.symbol, // Pass name for lookup
-        isBuy,
-        size: tradeDetails.size,
-        // Pass the leverage selected by the user
-        leverage: tradeDetails.leverage,
-        // Use slippageBps parameter with a small value (2%) to avoid Hyperliquid's 80% price deviation limit
-        slippageBps: 200 // 2% slippage
-      });
+          // Format as needed - make sure we have the right precision based on tick size
+          const decimalPlaces = tick < 1 ? 1 : 0;
+          const priceString = tickAdjustedPrice.toFixed(decimalPlaces);
 
-      if (result.isSuccess) {
+          console.log(`Price adjustment for tick ${tick}: ${rawPriceLimit} → ${tickAdjustedPrice} (${priceString})`);
+
+          // Call the Server Action to place the order with this tick-adjusted price
+          const result = await placeMarketOrderAction({
+            assetName: tradeDetails.symbol,
+            isBuy,
+            size: tradeDetails.size,
+            leverage: tradeDetails.leverage,
+            slippageBps: 200, // 2% slippage
+            overridePriceString: priceString // Pass the manually formatted price
+          });
+
+          if (result.isSuccess) {
+            orderResult = result;
+            successfulTickSize = tick;
+            console.log(`Order successfully placed with tick size ${tick}`);
+            break; // Exit the loop on success
+          }
+        } catch (tickError: any) {
+          const errorMessage = tickError instanceof Error ? tickError.message : String(tickError);
+          lastError = errorMessage;
+
+          // Only continue retrying if this was a tick size error
+          if (!errorMessage.includes("tick size")) {
+            throw tickError; // Re-throw other errors
+          }
+
+          console.warn(`Failed with tick size ${tick}: ${errorMessage}`);
+          // Continue to the next tick size
+        }
+      }
+
+      // Process the result if we found a working tick size
+      if (orderResult && orderResult.isSuccess) {
+        const result = orderResult;
+        console.log(`Trade executed successfully with tick size: ${successfulTickSize}`);
+
         logOrderId = result.data.oid.toString();
         if (result.data.status === 'filled' && result.data.avgPx) {
           logStatus = 'filled';
           logEntryPrice = parseFloat(result.data.avgPx); // Use actual fill price
-          logErrorMessage = null; // No error on success
+          logErrorMessage = ""; // No error on success
           toast({
             title: "Trade Executed Successfully",
             description: `Order ID: ${result.data.oid}. Average Fill Price: ${formatCurrency(logEntryPrice)}.`,
@@ -177,11 +200,11 @@ const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
         }
         router.refresh(); // Refresh server data (positions, balance)
       } else {
-        // Execution failed
-        setErrorMsg(result.message); // Show error in modal temporarily
+        // All tick sizes failed
+        setErrorMsg(`Failed to place order with any tick size: ${lastError}`);
         toast({
           title: "Trade Execution Failed",
-          description: result.message,
+          description: `Tried multiple tick sizes but all failed: ${lastError}`,
           variant: "destructive",
         });
       }
@@ -208,7 +231,7 @@ const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
       }
 
       // Close modal only on successful fill or placement, keep open on direct failure to show error
-      if (result.isSuccess) {
+      if (orderResult && orderResult.isSuccess) {
         onOpenChange(false);
       }
 
@@ -340,6 +363,18 @@ const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
                   <li>Ensure your HYPERLIQUID_API_SECRET is correctly set in your environment variables</li>
                   <li>The API key should be a 64-character hexadecimal string (with or without 0x prefix)</li>
                   <li>Check server logs for more details about the configuration issue</li>
+                </ul>
+              </div>
+            )}
+
+            {errorMsg.includes("tick size") && (
+              <div className="mt-2 text-xs">
+                <strong>Price Tick Size Error:</strong>
+                <ul className="list-disc pl-4 mt-1">
+                  <li>Hyperliquid requires prices to be in specific increments (tick sizes)</li>
+                  <li>This error typically occurs due to rounding or precision issues</li>
+                  <li>Try again with a slightly different size or using one of the templates</li>
+                  <li>For BTC, prices must typically be in increments of 0.5 (e.g., 96500.0, 96500.5, 96501.0)</li>
                 </ul>
               </div>
             )}
