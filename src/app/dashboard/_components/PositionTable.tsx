@@ -144,7 +144,7 @@ const PositionTable: React.FC<PositionTableProps> = ({
   // Helper function to fetch mark price for a specific asset
   const fetchMarkPrice = React.useCallback(async (assetName: string) => {
     // Avoid fetching if already loading for this asset or if asset name is invalid
-    if (isLoadingPrices || !assetName || assetName === "Unknown Asset" || assetName === "Error") return;
+    if (!assetName || assetName === "Unknown Asset" || assetName === "Error") return;
 
     try {
       setIsLoadingPrices(true); // Consider setting loading per-asset if needed
@@ -167,7 +167,7 @@ const PositionTable: React.FC<PositionTableProps> = ({
     } finally {
       setIsLoadingPrices(false);
     }
-  }, [isLoadingPrices]); // Include dependencies
+  }, []); // No dependencies here to avoid recreating this function
 
   // Fetch mark prices for each unique asset when positions change or periodically
   React.useEffect(() => {
@@ -181,22 +181,27 @@ const PositionTable: React.FC<PositionTableProps> = ({
       }
     });
 
-    // Fetch price for each asset
-    uniqueAssets.forEach(assetName => {
-      // Fetch immediately if price not available, otherwise rely on periodic refresh of positions triggering recalculation
+    // Create a separate effect for the interval to avoid dependency issues
+    let priceRefreshInterval: NodeJS.Timeout | null = null;
+
+    // Initial fetch for prices not yet loaded
+    Array.from(uniqueAssets).forEach(assetName => {
       if (markPrices[assetName] === undefined) {
         fetchMarkPrice(assetName);
       }
     });
 
-    // Optional: Set up an interval to periodically refresh mark prices independently
-    const priceRefreshInterval = setInterval(() => {
-      uniqueAssets.forEach(assetName => fetchMarkPrice(assetName));
-    }, settings.accountRefreshInterval); // Use same interval as account/positions for simplicity
+    // Set up periodic refresh only if we have assets to refresh
+    if (uniqueAssets.size > 0) {
+      priceRefreshInterval = setInterval(() => {
+        Array.from(uniqueAssets).forEach(fetchMarkPrice);
+      }, settings.accountRefreshInterval);
+    }
 
-    return () => clearInterval(priceRefreshInterval); // Cleanup interval on unmount
-
-  }, [currentPositions, getAssetName, fetchMarkPrice, settings.accountRefreshInterval, markPrices]); // Added markPrices to dependencies
+    return () => {
+      if (priceRefreshInterval) clearInterval(priceRefreshInterval);
+    };
+  }, [currentPositions, getAssetName, fetchMarkPrice, settings.accountRefreshInterval]); // Intentionally exclude markPrices
 
 
   // Helper function to determine PnL color

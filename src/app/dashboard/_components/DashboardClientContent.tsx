@@ -169,56 +169,56 @@ export default function DashboardClientContent({
 
     const openPositions = currentPositions.filter(p => p?.position?.szi && parseFloat(p.position.szi) !== 0);
     const latestPredictions = currentPredictions // Sort by timestamp descending
-        .sort((a, b) => b.timestamp - a.timestamp);
+      .sort((a, b) => b.timestamp - a.timestamp);
 
     openPositions.forEach(pos => {
-        const assetName = pos.position?.coin;
-        const entryPrice = parseFloat(pos.position?.entryPx || "0");
-        const positionSize = parseFloat(pos.position?.szi || "0");
+      const assetName = pos.position?.coin;
+      const entryPrice = parseFloat(pos.position?.entryPx || "0");
+      const positionSize = parseFloat(pos.position?.szi || "0");
 
-        if (!assetName || isNaN(entryPrice) || isNaN(positionSize) || positionSize === 0) {
-            console.warn("Skipping position due to invalid data:", pos);
-            return; // Skip if essential data is missing
+      if (!assetName || isNaN(entryPrice) || isNaN(positionSize) || positionSize === 0) {
+        console.warn("Skipping position due to invalid data:", pos);
+        return; // Skip if essential data is missing
+      }
+
+      const isLong = positionSize > 0;
+
+      // Find the latest relevant prediction (e.g., 8hr) for this asset
+      // Assumption: We only care about BTC for now. Extend if needed.
+      const relevantPrediction = latestPredictions.find(pred => pred.timeframe === '8h'); // Hardcoded 8hr for now
+
+      if (relevantPrediction) {
+        const predictionPrice = relevantPrediction.price;
+        let isContradictory = false;
+
+        if (isLong) {
+          // Long position contradicts if prediction is significantly lower
+          const lowerBound = entryPrice * (1 - alertThresholdPercent);
+          if (predictionPrice < lowerBound) {
+            isContradictory = true;
+            console.log(`Alert: LONG ${assetName} (Entry: ${entryPrice}) contradicts 8h prediction (${predictionPrice})`);
+          }
+        } else { // Short position
+          // Short position contradicts if prediction is significantly higher
+          const upperBound = entryPrice * (1 + alertThresholdPercent);
+          if (predictionPrice > upperBound) {
+            isContradictory = true;
+            console.log(`Alert: SHORT ${assetName} (Entry: ${entryPrice}) contradicts 8h prediction (${predictionPrice})`);
+          }
         }
-
-        const isLong = positionSize > 0;
-
-        // Find the latest relevant prediction (e.g., 8hr) for this asset
-        // Assumption: We only care about BTC for now. Extend if needed.
-        const relevantPrediction = latestPredictions.find(pred => pred.timeframe === '8h'); // Hardcoded 8hr for now
-
-        if (relevantPrediction) {
-            const predictionPrice = relevantPrediction.price;
-            let isContradictory = false;
-
-            if (isLong) {
-                // Long position contradicts if prediction is significantly lower
-                const lowerBound = entryPrice * (1 - alertThresholdPercent);
-                if (predictionPrice < lowerBound) {
-                    isContradictory = true;
-                    console.log(`Alert: LONG ${assetName} (Entry: ${entryPrice}) contradicts 8h prediction (${predictionPrice})`);
-                }
-            } else { // Short position
-                // Short position contradicts if prediction is significantly higher
-                const upperBound = entryPrice * (1 + alertThresholdPercent);
-                if (predictionPrice > upperBound) {
-                    isContradictory = true;
-                     console.log(`Alert: SHORT ${assetName} (Entry: ${entryPrice}) contradicts 8h prediction (${predictionPrice})`);
-                }
-            }
-            newAlertStatusMap[assetName] = isContradictory;
-        } else {
-             console.log(`No relevant 8h prediction found for ${assetName} to check alert status.`);
-        }
+        newAlertStatusMap[assetName] = isContradictory;
+      } else {
+        console.log(`No relevant 8h prediction found for ${assetName} to check alert status.`);
+      }
     });
 
     // Update the state only if the map has changed
     if (JSON.stringify(newAlertStatusMap) !== JSON.stringify(alertStatusMap)) {
-        console.log("Updating alert status map:", newAlertStatusMap);
-        setAlertStatusMap(newAlertStatusMap);
+      console.log("Updating alert status map:", newAlertStatusMap);
+      setAlertStatusMap(newAlertStatusMap);
     }
 
-  }, [currentPredictions, currentPositions, settings.alertsEnabled, alertStatusMap]); // Rerun when data or setting changes
+  }, [currentPredictions, currentPositions, settings.alertsEnabled]); // Removed alertStatusMap from dependencies
 
 
   // --- Callbacks ---
