@@ -2,26 +2,26 @@
  * @description
  * Client Component responsible for rendering the main content of the dashboard.
  * It receives initial data fetched on the server (passed as props) and manages
- * client-side state, periodic data fetching, and interactions between dashboard components.
+ * client-side state, periodic data fetching, interactions between dashboard components,
+ * and the contradictory prediction alert logic.
  *
  * Key features:
  * - Manages periodic fetching of Hyperliquid account info and positions.
  * - Displays API connection statuses using StatusIndicator.
  * - Renders AccountSummary, PositionTable, PredictionFeed, TradePanel, and TradeLog.
  * - Manages shared state like the selected prediction.
+ * - Implements logic to compare predictions against open positions and trigger alerts based on user settings.
+ * - Passes alert status down to the PositionTable.
  *
  * @dependencies
- * - React: For component structure, state (`useState`), and effects (`useEffect`).
+ * - react: For component structure, state (`useState`), effects (`useEffect`), and refs (`useRef`).
  * - @/types: Type definitions for initial props and state.
  * - @/hooks/usePeriodicFetcher: Custom hook for periodic data fetching.
  * - @/hooks/useLocalStorage: Custom hook for accessing settings from localStorage.
- * - @/actions/hyperliquid-actions: Server Action for fetching Hyperliquid account info and positions.
- * - @/actions/allora-actions: Server Action for fetching Allora predictions.
- * - @/components/ui/StatusIndicator: Shared component for displaying status.
- * - @/components/ui/LoadingSpinner: Shared component for loading indication.
- * - @/components/ui/ErrorDisplay: Shared component for displaying errors.
+ * - @/actions/*: Server Actions for fetching data.
+ * - @/components/ui/*: Various UI components (StatusIndicator, Button, etc.).
  * - ./AccountSummary: Component to display account balance/margin info.
- * - ./PositionTable: Component to display open positions.
+ * - ./PositionTable: Component to display open positions (now receives alertStatusMap).
  * - ./PredictionFeed: Component to display Allora predictions.
  * - ./AlloraStatusIndicator: Component to display Allora API status.
  * - ./HyperliquidStatusIndicator: Component to display Hyperliquid API status.
@@ -33,13 +33,11 @@
  * - Marked with `"use client"` directive.
  * - Takes initial data and error states as props from the parent Server Component (`DashboardPage`).
  * - Manages fetching and state for Hyperliquid account info and positions.
- * - Delegates display of account info and positions to respective components.
- * - Renders status indicators for both Allora and Hyperliquid APIs.
- * - Manages the selected prediction state and passes it to relevant components.
+ * - The alert logic currently uses a simple threshold (1% difference in the opposite direction) and checks against the latest 8hr prediction. This logic can be refined.
  */
 "use client";
 
-import React, { useState, useCallback, useRef } from "react";
+import React, { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import type {
   HyperliquidAccountInfo,
   HyperliquidPosition,
@@ -54,6 +52,7 @@ import {
   fetchHyperliquidPositionsAction,
 } from "@/actions/hyperliquid-actions";
 import { fetchAlloraPredictionsAction } from "@/actions/allora-actions";
+import { fetchTradeLogAction } from "@/actions/log-actions"; // Import fetchTradeLogAction
 import { DEFAULT_APP_SETTINGS } from "@/lib/constants";
 import AccountSummary from "./AccountSummary";
 import PositionTable from "./PositionTable";
@@ -61,7 +60,7 @@ import PredictionFeed from "./PredictionFeed";
 import AlloraStatusIndicator from "./AlloraStatusIndicator";
 import HyperliquidStatusIndicator from "./HyperliquidStatusIndicator";
 import TradePanel from "./TradePanel";
-import TradeLogDisplay from "./TradeLogDisplay"; // Import the actual component
+import TradeLogDisplay, { TradeLogDisplayRef } from "./TradeLogDisplay"; // Import ref type
 import { Button } from "@/components/ui/button";
 import { RefreshCw } from "lucide-react";
 
@@ -76,12 +75,12 @@ interface DashboardClientContentProps {
   initialPositionsError: string | null;
   initialPredictions: AlloraPrediction[] | null;
   initialPredictionsError: string | null;
-  initialLogs: TradeLogEntry[] | null;
-  initialLogsError: string | null;
+  initialLogs: TradeLogEntry[] | null; // Add initial logs prop
+  initialLogsError: string | null; // Add initial logs error prop
 }
 
 /**
- * Renders the main dashboard layout and manages client-side state.
+ * Renders the main dashboard layout and manages client-side state and interactions.
  * @param {DashboardClientContentProps} props - Initial data and error states.
  * @returns {React.ReactElement} The rendered dashboard client content.
  */
@@ -92,8 +91,8 @@ export default function DashboardClientContent({
   initialPositionsError,
   initialPredictions,
   initialPredictionsError,
-  initialLogs,
-  initialLogsError,
+  initialLogs, // Destructure initialLogs
+  initialLogsError, // Destructure initialLogsError
 }: DashboardClientContentProps): React.ReactElement {
   // Get app settings from local storage
   const [settings] = useLocalStorage<AppSettings>(
@@ -105,13 +104,16 @@ export default function DashboardClientContent({
   const [selectedPrediction, setSelectedPrediction] =
     useState<AlloraPrediction | null>(null);
 
-  // Add a separate loading state for the manual refresh button
+  // State for manual refresh button
   const [isManualRefreshing, setIsManualRefreshing] = useState(false);
 
-  // Add a reference to the TradeLogDisplay component
-  const tradeLogRef = useRef<{ refresh: () => Promise<void> } | null>(null);
+  // Ref for TradeLogDisplay component to trigger refresh
+  const tradeLogRef = useRef<TradeLogDisplayRef>(null);
 
-  // Fetch Hyperliquid Account Info periodically
+  // State for contradictory prediction alerts
+  const [alertStatusMap, setAlertStatusMap] = useState<Record<string, boolean>>({});
+
+  // --- Data Fetching Hooks ---
   const {
     data: accountInfo,
     isLoading: isLoadingAccountInfo,
@@ -123,7 +125,6 @@ export default function DashboardClientContent({
     initialAccountInfo
   );
 
-  // Fetch positions data
   const {
     data: positions,
     isLoading: isLoadingPositions,
@@ -135,7 +136,6 @@ export default function DashboardClientContent({
     initialPositions
   );
 
-  // Fetch predictions data
   const {
     data: predictions,
     isLoading: isLoadingPredictions,
@@ -147,84 +147,112 @@ export default function DashboardClientContent({
     initialPredictions
   );
 
-  // Function to refresh all data
-  const refreshAllData = useCallback(async () => {
-    console.log('Manual refresh of all data triggered');
+  // Combine initial and fetched data
+  const currentAccountInfo = accountInfo ?? initialAccountInfo;
+  const currentPositions = positions ?? initialPositions;
+  const currentPredictions = predictions ?? initialPredictions;
+  const currentAccountInfoError = accountInfo === null ? initialAccountError : accountInfoError;
+  const currentPositionsError = positions === null ? initialPositionsError : positionsError;
+  const currentPredictionsError = predictions === null ? initialPredictionsError : predictionsError;
 
-    // Log the current state of loading flags
-    console.log('Loading states before refresh:', {
-      isManualRefreshing,
-      isLoadingAccountInfo,
-      isLoadingPositions,
-      isLoadingPredictions
+  // --- Alert Logic ---
+  useEffect(() => {
+    // Only run alert logic if alerts are enabled in settings
+    if (!settings.alertsEnabled || !currentPositions || !currentPredictions) {
+      setAlertStatusMap({}); // Clear alerts if disabled or data missing
+      return;
+    }
+
+    console.log("Checking for contradictory predictions...");
+    const newAlertStatusMap: Record<string, boolean> = {};
+    const alertThresholdPercent = 0.01; // Example: 1% threshold
+
+    const openPositions = currentPositions.filter(p => p?.position?.szi && parseFloat(p.position.szi) !== 0);
+    const latestPredictions = currentPredictions // Sort by timestamp descending
+        .sort((a, b) => b.timestamp - a.timestamp);
+
+    openPositions.forEach(pos => {
+        const assetName = pos.position?.coin;
+        const entryPrice = parseFloat(pos.position?.entryPx || "0");
+        const positionSize = parseFloat(pos.position?.szi || "0");
+
+        if (!assetName || isNaN(entryPrice) || isNaN(positionSize) || positionSize === 0) {
+            console.warn("Skipping position due to invalid data:", pos);
+            return; // Skip if essential data is missing
+        }
+
+        const isLong = positionSize > 0;
+
+        // Find the latest relevant prediction (e.g., 8hr) for this asset
+        // Assumption: We only care about BTC for now. Extend if needed.
+        const relevantPrediction = latestPredictions.find(pred => pred.timeframe === '8h'); // Hardcoded 8hr for now
+
+        if (relevantPrediction) {
+            const predictionPrice = relevantPrediction.price;
+            let isContradictory = false;
+
+            if (isLong) {
+                // Long position contradicts if prediction is significantly lower
+                const lowerBound = entryPrice * (1 - alertThresholdPercent);
+                if (predictionPrice < lowerBound) {
+                    isContradictory = true;
+                    console.log(`Alert: LONG ${assetName} (Entry: ${entryPrice}) contradicts 8h prediction (${predictionPrice})`);
+                }
+            } else { // Short position
+                // Short position contradicts if prediction is significantly higher
+                const upperBound = entryPrice * (1 + alertThresholdPercent);
+                if (predictionPrice > upperBound) {
+                    isContradictory = true;
+                     console.log(`Alert: SHORT ${assetName} (Entry: ${entryPrice}) contradicts 8h prediction (${predictionPrice})`);
+                }
+            }
+            newAlertStatusMap[assetName] = isContradictory;
+        } else {
+             console.log(`No relevant 8h prediction found for ${assetName} to check alert status.`);
+        }
     });
 
-    setIsManualRefreshing(true);
+    // Update the state only if the map has changed
+    if (JSON.stringify(newAlertStatusMap) !== JSON.stringify(alertStatusMap)) {
+        console.log("Updating alert status map:", newAlertStatusMap);
+        setAlertStatusMap(newAlertStatusMap);
+    }
 
+  }, [currentPredictions, currentPositions, settings.alertsEnabled, alertStatusMap]); // Rerun when data or setting changes
+
+
+  // --- Callbacks ---
+  const refreshAllData = useCallback(async () => {
+    if (isManualRefreshing) return; // Prevent multiple clicks
+
+    console.log('Manual refresh triggered.');
+    setIsManualRefreshing(true);
     try {
-      // Set up refreshes to happen in parallel
-      await Promise.all([
+      await Promise.allSettled([
         refreshAccountInfo(),
         refreshPositions(),
         refreshPredictions(),
-        // Also refresh trade logs if reference is available
-        tradeLogRef.current?.refresh() || Promise.resolve()
+        tradeLogRef.current?.refresh(), // Refresh logs via ref
       ]);
-
-      // Also refresh mark prices if we have positions
-      if (positions && positions.length > 0) {
-        const uniqueAssets = new Set<string>();
-        positions.forEach(position => {
-          try {
-            // Extract asset name (assuming you have a getAssetName function somewhere)
-            const assetName = position.position?.coin;
-            if (assetName) {
-              uniqueAssets.add(assetName);
-            }
-          } catch (e) {
-            console.error("Error getting asset name:", e);
-          }
-        });
-
-        // This will trigger re-fetching of prices in PositionTable's effect
-        console.log('Refreshed mark prices for assets:', Array.from(uniqueAssets));
-      }
-
-      console.log('All data refreshed');
+      console.log('Manual refresh complete.');
     } catch (error) {
-      console.error('Error refreshing data:', error);
-      // If the refresh fails, refresh the page as a fallback
-      window.location.reload();
+      console.error('Error during manual refresh:', error);
+      // Consider adding a toast notification on error
     } finally {
-      // Force a small delay before resetting the loading state to ensure other state updates have completed
-      setTimeout(() => {
-        setIsManualRefreshing(false);
-        console.log('Manual refresh completed. Loading states:', {
-          isManualRefreshing: false,
-          isLoadingAccountInfo,
-          isLoadingPositions,
-          isLoadingPredictions
-        });
-      }, 500);
+      // Add a small delay before resetting to prevent state race conditions
+      setTimeout(() => setIsManualRefreshing(false), 300);
     }
-  }, [refreshAccountInfo, refreshPositions, refreshPredictions, positions,
-    isManualRefreshing, isLoadingAccountInfo, isLoadingPositions, isLoadingPredictions]);
+  }, [isManualRefreshing, refreshAccountInfo, refreshPositions, refreshPredictions]); // Dependencies
 
-  // Callback function for the PredictionFeed to update the selected prediction
   const handleSelectPrediction = (prediction: AlloraPrediction | null) => {
     setSelectedPrediction(prediction);
   };
 
-  // Use the initial error from props if the first client-side fetch hasn't happened yet
-  const currentAccountInfoError = accountInfo === null ? initialAccountError : accountInfoError;
-  const currentAccountInfo = accountInfo ?? initialAccountInfo; // Prefer fresh data, fallback to initial
-
-  // Ensure consistent initial render
-  const content = (
+  // --- Render Logic ---
+  return (
     <div className="space-y-6">
       <div className="flex justify-between items-center mb-4">
         <h2 className="text-2xl font-semibold">Dashboard</h2>
-        {/* Status Indicators */}
         <div className="flex items-center space-x-4">
           <AlloraStatusIndicator key="allora-status" />
           <HyperliquidStatusIndicator key="hyperliquid-status" />
@@ -232,53 +260,45 @@ export default function DashboardClientContent({
             variant="outline"
             size="sm"
             onClick={refreshAllData}
-            disabled={isManualRefreshing} // Only disable during manual refresh
+            disabled={isManualRefreshing}
           >
             <RefreshCw className={`h-4 w-4 mr-2 ${isManualRefreshing ? 'animate-spin' : ''}`} />
-            Refresh All
+            {isManualRefreshing ? 'Refreshing...' : 'Refresh All'}
           </Button>
         </div>
       </div>
 
-      {/* Grid layout for dashboard sections */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left/Main Column */}
         <div className="lg:col-span-2 space-y-6">
-          {/* Account Summary Component */}
           <AccountSummary
             key="account-summary"
             currentAccountInfo={currentAccountInfo}
             isLoading={isLoadingAccountInfo}
             error={currentAccountInfoError}
           />
-
-          {/* Position Table Component */}
           <PositionTable
             key="position-table"
-            initialPositions={initialPositions}
+            initialPositions={initialPositions} // Pass initial for first render
             initialError={initialPositionsError}
+            alertStatusMap={alertStatusMap} // Pass down the alert status
           />
-
-          {/* Trade Log Display Component */}
           <TradeLogDisplay
             key="trade-log"
             initialLogEntries={initialLogs}
             initialError={initialLogsError}
-            ref={tradeLogRef}
+            ref={tradeLogRef} // Assign ref
           />
         </div>
 
         {/* Right Column */}
         <div className="space-y-6">
-          {/* Prediction Feed Component */}
           <PredictionFeed
             key="prediction-feed"
-            initialPredictions={initialPredictions}
+            initialPredictions={initialPredictions} // Pass initial for first render
             initialError={initialPredictionsError}
             onSelectPrediction={handleSelectPrediction}
           />
-
-          {/* Trade Panel Component */}
           <TradePanel
             key="trade-panel"
             selectedPrediction={selectedPrediction}
@@ -287,6 +307,4 @@ export default function DashboardClientContent({
       </div>
     </div>
   );
-
-  return content;
 }
