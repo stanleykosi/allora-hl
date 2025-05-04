@@ -108,6 +108,9 @@ export default function DashboardClientContent({
   // Add a separate loading state for the manual refresh button
   const [isManualRefreshing, setIsManualRefreshing] = useState(false);
 
+  // Add a reference to the TradeLogDisplay component
+  const tradeLogRef = useRef<{ refresh: () => Promise<void> } | null>(null);
+
   // Fetch Hyperliquid Account Info periodically
   const {
     data: accountInfo,
@@ -164,7 +167,8 @@ export default function DashboardClientContent({
         refreshAccountInfo(),
         refreshPositions(),
         refreshPredictions(),
-        // Add refresh for logs if TradeLogDisplay implements its own refresh callback
+        // Also refresh trade logs if reference is available
+        tradeLogRef.current?.refresh() || Promise.resolve()
       ]);
 
       // Also refresh mark prices if we have positions
@@ -260,6 +264,7 @@ export default function DashboardClientContent({
             key="trade-log"
             initialLogEntries={initialLogs}
             initialError={initialLogsError}
+            ref={tradeLogRef}
           />
         </div>
 

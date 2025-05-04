@@ -217,14 +217,14 @@ const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
             }
           } catch (tickError: any) {
             clearTimeout(timeoutId); // Clear the timeout on error too
-            
+
             // Check if this was an abort error
             if (tickError.name === 'AbortError') {
               lastError = "API request timed out. The network may be slow or the server is unresponsive.";
               console.error("API request timed out:", lastError);
               throw new Error(lastError); // Exit all retries on timeout
             }
-            
+
             const errorMessage = tickError instanceof Error ? tickError.message : String(tickError);
             lastError = errorMessage;
 
@@ -442,12 +442,12 @@ const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
       // Extract key trade parameters
       const isBuy = tradeDetails.direction === "long"; // true for long, false for short
       const rawPriceLimit = tradeDetails.priceLimitValue;
-      
+
       // Use a single tick size - 0.5 which is most common for BTC
       const tickSize = 0.5;
       const tickAdjustedPrice = Math.round(rawPriceLimit / tickSize) * tickSize;
       const priceString = tickAdjustedPrice.toFixed(1); // BTC uses 1 decimal place
-      
+
       console.log("Executing direct order with parameters:", {
         asset: tradeDetails.symbol,
         direction: tradeDetails.direction,
@@ -470,7 +470,7 @@ const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
           description: `Order ID: ${result.data.oid}. Status: ${result.data.status}.`,
           variant: "default",
         });
-        
+
         // Log success
         await logTradeAction({
           symbol: tradeDetails.symbol,
@@ -481,7 +481,7 @@ const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
           hyperliquidOrderId: result.data.oid.toString(),
           errorMessage: "",
         });
-        
+
         // Close modal and refresh
         setIsExecuting(false);
         router.refresh();
@@ -489,7 +489,7 @@ const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
       } else {
         // Handle failure
         setErrorMsg(`Direct order failed: ${result.message || "Unknown error"}`);
-        
+
         // Log failure
         await logTradeAction({
           symbol: tradeDetails.symbol,
@@ -506,7 +506,7 @@ const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
       const errorMessage = error instanceof Error ? error.message : String(error);
       setErrorMsg(`Error: ${errorMessage}`);
       console.error("Direct order error:", error);
-      
+
       // Log failure
       await logTradeAction({
         symbol: tradeDetails.symbol,
