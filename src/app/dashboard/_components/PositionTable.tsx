@@ -5,13 +5,14 @@
  * It now also accepts an alert status map to visually indicate positions that might contradict recent predictions.
  *
  * Key features:
- * - Fetches open positions periodically using `usePeriodicFetcher` and `WorkspaceHyperliquidPositionsAction`.
+ * - Fetches open positions periodically using `usePeriodicFetcher` and `fetchHyperliquidPositionsAction`.
  * - Uses `useLocalStorage` to get the refresh interval from settings.
- * - Displays positions in a Shadcn `Table`.
+ * - Displays positions in a Shadcn `Table` with horizontal scrolling on small screens.
  * - Formats numeric data (size, price, PnL) using `lib/formatting`.
  * - Handles loading, error, and empty states gracefully.
- * - Applies basic styling for PnL (green/red).
+ * - Applies styling for PnL (green/red) and ensures consistent text alignment.
  * - Accepts `alertStatusMap` to visually highlight potentially contradictory positions.
+ * - Displays real-time mark prices when available.
  *
  * @dependencies
  * - react: For component structure and hooks (`useState`, `useEffect`, `useMemo`).
@@ -25,6 +26,7 @@
  * - @/components/ui/table: Shadcn Table components for data display.
  * - @/components/ui/LoadingSpinner: Component to display loading state.
  * - @/components/ui/ErrorDisplay: Component to display error messages.
+ * - @/components/ui/tooltip: Shadcn Tooltip components.
  * - clsx: Utility for conditional class names.
  * - lucide-react: For icons (AlertTriangle).
  *
@@ -100,7 +102,7 @@ const PositionTable: React.FC<PositionTableProps> = ({
 
   // State to store current mark prices
   const [markPrices, setMarkPrices] = React.useState<Record<string, number>>({});
-  const [isLoadingPrices, setIsLoadingPrices] = React.useState<boolean>(false);
+  const [isLoadingPrices, setIsLoadingPrices] = React.useState<boolean>(false); // Can be used for per-row loading if needed
 
   // Fetch positions periodically using the custom hook
   const {
@@ -130,8 +132,6 @@ const PositionTable: React.FC<PositionTableProps> = ({
       if (typeof coin === 'string' && coin) {
         return coin;
       }
-      // Add fallbacks for other possible structures if necessary
-      // else if (typeof position?.asset === 'string' && position.asset) { return position.asset; }
       console.warn("Could not determine asset name from position data:", position);
       return "Unknown Asset";
     } catch (e) {
@@ -147,7 +147,7 @@ const PositionTable: React.FC<PositionTableProps> = ({
     if (!assetName || assetName === "Unknown Asset" || assetName === "Error") return;
 
     try {
-      setIsLoadingPrices(true); // Consider setting loading per-asset if needed
+      // setIsLoadingPrices(true); // Only set global loading if needed
       const result = await fetchCurrentPriceAction(assetName);
       if (result.isSuccess && result.data?.price) {
         const price = parseFloat(result.data.price);
@@ -165,7 +165,7 @@ const PositionTable: React.FC<PositionTableProps> = ({
     } catch (e) {
       console.error(`Error fetching mark price for ${assetName}:`, e);
     } finally {
-      setIsLoadingPrices(false);
+      // setIsLoadingPrices(false);
     }
   }, []); // No dependencies here to avoid recreating this function
 
@@ -186,23 +186,25 @@ const PositionTable: React.FC<PositionTableProps> = ({
 
     // Initial fetch for prices not yet loaded
     Array.from(uniqueAssets).forEach(assetName => {
+      // Fetch immediately only if not already present
       if (markPrices[assetName] === undefined) {
         fetchMarkPrice(assetName);
       }
     });
 
+
     // Set up periodic refresh only if we have assets to refresh
     if (uniqueAssets.size > 0) {
       priceRefreshInterval = setInterval(() => {
         Array.from(uniqueAssets).forEach(fetchMarkPrice);
-      }, settings.accountRefreshInterval);
+      }, settings.accountRefreshInterval); // Use same interval as account info
     }
 
     return () => {
       if (priceRefreshInterval) clearInterval(priceRefreshInterval);
     };
-  }, [currentPositions, getAssetName, fetchMarkPrice, settings.accountRefreshInterval]); // Intentionally exclude markPrices
-
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPositions, settings.accountRefreshInterval]); // Dependencies: positions and interval setting
 
   // Helper function to determine PnL color
   const getPnlColor = (pnlValue: number): string => {
@@ -232,6 +234,30 @@ const PositionTable: React.FC<PositionTableProps> = ({
     }
   }, [currentPositions]);
 
+  // Calculate approximate liquidation price (simplified)
+  const calculateSimpleLiqPrice = (position: HyperliquidPosition): string | null => {
+    try {
+      const entryPrice = parseFloat(position.position?.entryPx || "0");
+      const leverage = parseFloat(String(position.position?.leverage?.value || "0"));
+      const size = parseFloat(position.position?.szi || "0");
+
+      if (entryPrice <= 0 || leverage <= 0 || size === 0) return null;
+
+      const isLong = size > 0;
+      const inverseLeverage = 1 / leverage;
+      let liqPrice = 0;
+
+      if (isLong) {
+        liqPrice = entryPrice * (1 - inverseLeverage);
+      } else {
+        liqPrice = entryPrice * (1 + inverseLeverage);
+      }
+      return formatCurrency(Math.max(0, liqPrice)); // Ensure non-negative
+    } catch {
+      return null;
+    }
+  };
+
   return (
     <Card>
       <CardHeader>
@@ -240,13 +266,13 @@ const PositionTable: React.FC<PositionTableProps> = ({
           <CardDescription>
             Your current open positions on Hyperliquid.
             {currentError && currentPositions && (
-              <span className="text-red-600 ml-2">(Error fetching updates)</span>
+              <span className="text-destructive font-medium ml-2">(Error fetching updates)</span>
             )}
           </CardDescription>
         </div>
       </CardHeader>
       <CardContent>
-        <div className="min-h-[150px]"> {/* Adjusted min-height */}
+        <div className="min-h-[150px]"> {/* Ensure minimum height */}
           {isLoading && !currentPositions && ( // Show loading only if no stale data
             <div className="flex justify-center items-center h-40">
               <LoadingSpinner />
@@ -254,7 +280,9 @@ const PositionTable: React.FC<PositionTableProps> = ({
           )}
 
           {currentError && !currentPositions && ( // Show error only if no stale data
-            <ErrorDisplay error={currentError} />
+            <div className="flex justify-center items-center h-40">
+              <ErrorDisplay error={currentError} />
+            </div>
           )}
 
           {/* Handle case where there are no open positions */}
@@ -266,19 +294,18 @@ const PositionTable: React.FC<PositionTableProps> = ({
 
           {/* Render table only if there are open positions */}
           {openPositions.length > 0 && (
-            <div className="w-full overflow-auto">
+            <div className="w-full overflow-x-auto rounded-md border">
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="w-[20px]">Alert</TableHead> {/* Alert Column */}
-                    <TableHead>Asset</TableHead>
-                    <TableHead>Size</TableHead>
-                    <TableHead>Entry Price</TableHead>
-                    <TableHead>Mark Price</TableHead>
-                    <TableHead className="text-right">Unrealized PnL</TableHead>
-                    {/* Add other relevant columns like Margin, Liq. Price if available directly */}
+                    <TableHead className="w-[30px] px-2 text-center">Alert</TableHead>
+                    <TableHead className="min-w-[80px]">Asset</TableHead>
+                    <TableHead className="text-right min-w-[100px]">Size</TableHead>
+                    <TableHead className="text-right min-w-[120px]">Entry Price</TableHead>
+                    <TableHead className="text-right min-w-[120px]">Mark Price</TableHead>
+                    <TableHead className="text-right min-w-[120px]">Unrealized PnL</TableHead>
+                    <TableHead className="text-right min-w-[120px]">Est. Liq. Price</TableHead>
                     {/* <TableHead>Margin</TableHead> */}
-                    {/* <TableHead>Liq. Price</TableHead> */}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -288,18 +315,20 @@ const PositionTable: React.FC<PositionTableProps> = ({
                       // Safely extract values with fallbacks, converting to number where appropriate
                       const size = parseFloat(position.position?.szi || "0");
                       const entryPrice = parseFloat(position.position?.entryPx || "0");
+                      const leverage = parseFloat(String(position.position?.leverage?.value || "0"));
                       const markPrice = markPrices[assetName] ?? parseFloat(position.position?.entryPx || "0"); // Use dynamic price if available, fallback to entry price
                       const unrealizedPnl = parseFloat(position.position?.unrealizedPnl || "0");
                       const isAlertActive = !!alertStatusMap?.[assetName]; // Check alert status
+                      const estimatedLiqPrice = calculateSimpleLiqPrice(position);
 
                       return (
                         <TableRow key={`${assetName}-${idx}`} className={clsx(isAlertActive && "bg-yellow-100/50 dark:bg-yellow-900/30")}>
-                          <TableCell className="text-center">
+                          <TableCell className="px-2 text-center">
                             {isAlertActive ? (
                               <TooltipProvider>
-                                <Tooltip>
+                                <Tooltip delayDuration={100}>
                                   <TooltipTrigger asChild>
-                                    <div className="flex justify-center items-center">
+                                    <div className="flex justify-center items-center h-full">
                                       <AlertTriangle className="h-5 w-5 text-red-600 animate-pulse" />
                                     </div>
                                   </TooltipTrigger>
@@ -310,21 +339,23 @@ const PositionTable: React.FC<PositionTableProps> = ({
                               </TooltipProvider>
                             ) : null}
                           </TableCell>
-                          <TableCell>{assetName}</TableCell>
-                          <TableCell>{formatNumber(size)}</TableCell>
-                          <TableCell>{formatCurrency(entryPrice)}</TableCell>
-                          <TableCell>
+                          <TableCell className="font-medium whitespace-nowrap">{assetName}</TableCell>
+                          <TableCell className="text-right whitespace-nowrap">{formatNumber(size, 6)}</TableCell>
+                          <TableCell className="text-right whitespace-nowrap">{formatCurrency(entryPrice)}</TableCell>
+                          <TableCell className="text-right whitespace-nowrap">
                             {formatCurrency(markPrice)}
-                            {markPrices[assetName] !== undefined && (
+                            {markPrices[assetName] !== undefined && markPrices[assetName] !== entryPrice && (
                               <span className="ml-1 text-xs text-green-500 dark:text-green-400" title="Real-time Mark Price">•</span>
                             )}
                           </TableCell>
-                          <TableCell className={clsx("text-right", getPnlColor(unrealizedPnl))}>
+                          <TableCell className={clsx("text-right font-medium whitespace-nowrap", getPnlColor(unrealizedPnl))}>
                             {formatCurrency(unrealizedPnl)}
+                          </TableCell>
+                          <TableCell className="text-right whitespace-nowrap text-muted-foreground">
+                            {estimatedLiqPrice ?? "N/A"}
                           </TableCell>
                           {/* Render other columns if data exists */}
                           {/* <TableCell>{formatCurrency(position.position?.marginUsed || '0')}</TableCell> */}
-                          {/* <TableCell>{formatCurrency(position.position?.liquidationPx || '0')}</TableCell> */}
                         </TableRow>
                       );
                     } catch (e) {
@@ -332,7 +363,7 @@ const PositionTable: React.FC<PositionTableProps> = ({
                       // Render a row indicating error for this specific position
                       return (
                         <TableRow key={`error-${idx}`}>
-                          <TableCell colSpan={6} className="text-center text-red-600 text-xs">
+                          <TableCell colSpan={7} className="text-center text-destructive text-xs py-4">
                             Error rendering position data. See console for details.
                           </TableCell>
                         </TableRow>
@@ -341,16 +372,19 @@ const PositionTable: React.FC<PositionTableProps> = ({
                   })}
                 </TableBody>
               </Table>
-              <div className="mt-2 text-xs text-muted-foreground flex items-center justify-end space-x-2">
-                <span className="flex items-center gap-1">
-                  <span className="h-2 w-2 rounded-full bg-green-500 dark:bg-green-400" title="Real-time Mark Price"></span>
-                  <span>Real-time Mark Price</span>
-                </span>
-                <span className="flex items-center gap-1">
-                  <AlertTriangle className="h-3 w-3 text-red-600" />
-                  <span>Contradiction Alert</span>
-                </span>
-              </div>
+            </div> /* End overflow wrapper */
+          )}
+          {/* Legend outside the scrollable table div */}
+          {openPositions.length > 0 && (
+            <div className="mt-3 text-xs text-muted-foreground flex items-center justify-end space-x-4">
+              <span className="flex items-center gap-1">
+                <span className="h-2 w-2 rounded-full bg-green-500 dark:bg-green-400" title="Real-time Mark Price"></span>
+                <span>Real-time Mark Price</span>
+              </span>
+              <span className="flex items-center gap-1">
+                <AlertTriangle className="h-3 w-3 text-red-600" />
+                <span>Contradiction Alert</span>
+              </span>
             </div>
           )}
         </div>

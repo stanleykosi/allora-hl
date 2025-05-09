@@ -4,7 +4,7 @@
  * Allows users to view, initiate editing, and delete templates with confirmation.
  *
  * Key features:
- * - Renders templates using Shadcn UI Table.
+ * - Renders templates using Shadcn UI Table with horizontal scrolling.
  * - Provides Edit and Delete buttons for each template.
  * - Uses Shadcn AlertDialog for delete confirmation.
  * - Handles loading and error states during deletion.
@@ -127,7 +127,7 @@ const TemplateList: React.FC<TemplateListProps> = ({
     if (!templates || templates.length === 0) {
       return (
         <TableRow>
-          <TableCell colSpan={4} className="h-24 text-center">
+          <TableCell colSpan={4} className="h-24 text-center text-muted-foreground">
             No templates found. Create one to get started!
           </TableCell>
         </TableRow>
@@ -137,32 +137,36 @@ const TemplateList: React.FC<TemplateListProps> = ({
     return templates.map((template) => (
       <TableRow key={template.id}>
         <TableCell className="font-medium">{template.name}</TableCell>
-        <TableCell className="text-right">
+        <TableCell className="text-right whitespace-nowrap">
           {formatNumber(template.size, 4)} {/* Example: 4 decimal places */}
         </TableCell>
-        <TableCell className="text-right">
+        <TableCell className="text-right whitespace-nowrap">
           {formatNumber(template.leverage, 1)}x{" "}
           {/* Example: 1 decimal place */}
         </TableCell>
-        <TableCell className="text-right space-x-2">
-          <Button
-            variant="outline"
-            size="icon"
-            onClick={() => onEdit(template)}
-            aria-label={`Edit template ${template.name}`}
-          >
-            <Pencil className="h-4 w-4" />
-          </Button>
-          <AlertDialogTrigger asChild>
-            <Button
-              variant="destructive"
-              size="icon"
-              onClick={() => handleDeleteClick(template)}
-              aria-label={`Delete template ${template.name}`}
-            >
-              <Trash2 className="h-4 w-4" />
-            </Button>
-          </AlertDialogTrigger>
+        <TableCell className="text-right whitespace-nowrap">
+           <div className="flex justify-end space-x-2">
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => onEdit(template)}
+                aria-label={`Edit template ${template.name}`}
+                className="h-8 w-8" // Smaller icon buttons
+              >
+                <Pencil className="h-4 w-4" />
+              </Button>
+              <AlertDialogTrigger asChild>
+                <Button
+                  variant="destructive"
+                  size="icon"
+                  onClick={() => handleDeleteClick(template)}
+                  aria-label={`Delete template ${template.name}`}
+                  className="h-8 w-8" // Smaller icon buttons
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </AlertDialogTrigger>
+           </div>
         </TableCell>
       </TableRow>
     ));
@@ -170,18 +174,21 @@ const TemplateList: React.FC<TemplateListProps> = ({
 
   return (
     <AlertDialog open={isAlertOpen} onOpenChange={setIsAlertOpen}>
-      <Table>
-        <TableCaption>A list of your saved trade templates.</TableCaption>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Name</TableHead>
-            <TableHead className="text-right">Size</TableHead>
-            <TableHead className="text-right">Leverage</TableHead>
-            <TableHead className="text-right">Actions</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>{renderTableContent()}</TableBody>
-      </Table>
+      {/* Wrapper div for horizontal scrolling on smaller screens */}
+      <div className="w-full overflow-x-auto border rounded-md">
+        <Table>
+          <TableCaption className="mt-4">A list of your saved trade templates.</TableCaption>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="min-w-[150px]">Name</TableHead>
+              <TableHead className="text-right min-w-[100px]">Size</TableHead>
+              <TableHead className="text-right min-w-[100px]">Leverage</TableHead>
+              <TableHead className="text-right min-w-[120px]">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>{renderTableContent()}</TableBody>
+        </Table>
+      </div>
 
       {/* Confirmation Dialog */}
       <AlertDialogContent>

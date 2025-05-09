@@ -11,6 +11,7 @@
  * - Calls `createTemplateAction` or `updateTemplateAction` Server Actions on submit.
  * - Uses `useToast` hook for success and error notifications.
  * - Calls `onTemplateSaved` prop on successful save to trigger parent updates.
+ * - Uses responsive grid layout within the sheet.
  *
  * @dependencies
  * - react: For component structure and hooks (useState, useEffect).
@@ -71,19 +72,22 @@ const TemplateEditor: React.FC<TemplateEditorProps> = ({
 
   // Populate form when templateToEdit changes (for editing)
   useEffect(() => {
-    if (templateToEdit) {
-      setName(templateToEdit.name);
-      setSize(String(templateToEdit.size));
-      setLeverage(String(templateToEdit.leverage));
-      setErrors({}); // Clear errors when opening editor
-    } else {
-      // Reset form when opening for creation
-      setName("");
-      setSize("");
-      setLeverage("");
-      setErrors({});
+    if (isOpen) { // Only reset/populate when opening
+        if (templateToEdit) {
+            setName(templateToEdit.name);
+            setSize(String(templateToEdit.size));
+            setLeverage(String(templateToEdit.leverage));
+            setErrors({}); // Clear errors when opening editor
+        } else {
+            // Reset form when opening for creation
+            setName("");
+            setSize("");
+            setLeverage("");
+            setErrors({});
+        }
     }
   }, [templateToEdit, isOpen]); // Re-run effect when editor opens or template changes
+
 
   // Basic client-side validation
   const validateForm = (): boolean => {
@@ -115,7 +119,14 @@ const TemplateEditor: React.FC<TemplateEditorProps> = ({
 
     setIsSaving(true);
     const sizeNum = parseFloat(size);
-    const leverageNum = parseFloat(leverage);
+    // Cap leverage at 40 before sending to action
+    let leverageNum = parseFloat(leverage);
+    if (leverageNum > 40) {
+        leverageNum = 40;
+    } else if (leverageNum < 1) {
+        leverageNum = 1;
+    }
+
     const templateData = { name: name.trim(), size: sizeNum, leverage: leverageNum };
 
     try {
@@ -142,8 +153,9 @@ const TemplateEditor: React.FC<TemplateEditorProps> = ({
           variant: "destructive",
         });
         // Optionally set server-side validation errors back to the form state
-        if (result.error?.includes("name already exists")) {
-          setErrors((prev) => ({ ...prev, name: result.message }));
+        // Example: Check if the error message indicates a duplicate name
+        if (result.message?.toLowerCase().includes("name already exists")) {
+          setErrors((prev) => ({ ...prev, name: "This name is already taken." }));
         }
       }
     } catch (error) {
@@ -160,7 +172,7 @@ const TemplateEditor: React.FC<TemplateEditorProps> = ({
 
   return (
     <Sheet open={isOpen} onOpenChange={onOpenChange}>
-      <SheetContent>
+      <SheetContent className="sm:max-w-[425px] md:max-w-[550px]"> {/* Adjust width */}
         <SheetHeader>
           <SheetTitle>
             {templateToEdit ? "Edit Template" : "Create New Template"}
@@ -171,34 +183,36 @@ const TemplateEditor: React.FC<TemplateEditorProps> = ({
               : "Define parameters for a reusable trade template."}
           </SheetDescription>
         </SheetHeader>
-        <form onSubmit={handleSubmit} className="grid gap-4 py-4">
+        {/* Use a form element for semantics and potential keyboard submission */}
+        <form onSubmit={handleSubmit} className="grid gap-4 py-6">
           {/* Template Name Input */}
           <div className="grid grid-cols-4 items-center gap-4">
-            <Label htmlFor="name" className="text-right">
+            <Label htmlFor="template-name" className="text-right col-span-1"> {/* Ensure label points to correct ID */}
               Name
             </Label>
-            <div className="col-span-3">
+            <div className="col-span-3 space-y-1"> {/* Add space-y for error msg */}
               <Input
-                id="name"
+                id="template-name" // Unique ID
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 className={errors.name ? "border-destructive" : ""}
                 disabled={isSaving}
+                placeholder="e.g., My Standard BTC Long"
               />
               {errors.name && (
-                <p className="text-xs text-destructive mt-1">{errors.name}</p>
+                <p className="text-xs text-destructive">{errors.name}</p>
               )}
             </div>
           </div>
 
           {/* Size Input */}
           <div className="grid grid-cols-4 items-center gap-4">
-            <Label htmlFor="size" className="text-right">
+            <Label htmlFor="template-size" className="text-right col-span-1"> {/* Unique ID */}
               Size
             </Label>
-            <div className="col-span-3">
+            <div className="col-span-3 space-y-1">
               <Input
-                id="size"
+                id="template-size" // Unique ID
                 type="number"
                 value={size}
                 onChange={(e) => setSize(e.target.value)}
@@ -206,78 +220,58 @@ const TemplateEditor: React.FC<TemplateEditorProps> = ({
                 min="0" // Basic validation
                 className={errors.size ? "border-destructive" : ""}
                 disabled={isSaving}
-                placeholder="e.g., 0.01"
+                placeholder="e.g., 0.01 (in BTC)"
               />
               {errors.size && (
-                <p className="text-xs text-destructive mt-1">{errors.size}</p>
+                <p className="text-xs text-destructive">{errors.size}</p>
               )}
             </div>
           </div>
 
           {/* Leverage Input */}
           <div className="grid grid-cols-4 items-center gap-4">
-            <Label htmlFor="leverage" className="text-right">
+             <Label htmlFor="template-leverage" className="text-right col-span-1"> {/* Unique ID */}
               Leverage
-              <span className="ml-1 text-xs text-muted-foreground">(Max: 40x)</span>
             </Label>
-            <div className="col-span-3">
+            <div className="col-span-3 space-y-1">
               <Input
-                id="leverage"
+                id="template-leverage" // Unique ID
                 type="number"
                 value={leverage}
                 onChange={(e) => {
-                  const value = e.target.value;
-                  const numValue = parseFloat(value);
-
-                  // Check if value exceeds limit when it's a valid number
-                  if (!isNaN(numValue) && numValue > 40) {
-                    // Auto-cap at 40x
-                    setLeverage("40");
-
-                    // Show warning toast
-                    toast({
-                      title: "Leverage Limit Exceeded",
-                      description: "Hyperliquid only supports up to 40x leverage for BTC trades. Your leverage has been capped at 40x.",
-                      variant: "destructive",
-                      duration: 5000,
-                    });
-                  } else {
-                    setLeverage(value);
-                  }
+                    const value = e.target.value;
+                    const numValue = parseFloat(value);
+                    // Basic range check during typing for immediate feedback, capping is done on submit
+                    if (!isNaN(numValue) && numValue > 40) setLeverage("40");
+                    else if (!isNaN(numValue) && numValue < 1) setLeverage("1");
+                    else setLeverage(value);
                 }}
-                step="any" // Allow decimals
-                min="1" // Minimum leverage
-                max="40" // Maximum leverage for Hyperliquid BTC
-                className={`${errors.leverage ? "border-destructive" : ""} ${parseFloat(leverage) > 40 ? "border-destructive" : ""
-                  }`}
+                step="any"
+                min="1"
+                max="40"
+                className={errors.leverage ? "border-destructive" : ""}
                 disabled={isSaving}
-                placeholder="e.g., 10"
+                placeholder="e.g., 10 (Max 40x for BTC)"
               />
               {errors.leverage && (
-                <p className="text-xs text-destructive mt-1">
-                  {errors.leverage}
-                </p>
+                <p className="text-xs text-destructive">{errors.leverage}</p>
               )}
-              {!errors.leverage && parseFloat(leverage) > 40 && (
-                <p className="text-xs text-destructive mt-1">
-                  Hyperliquid limits BTC leverage to 40x maximum.
-                </p>
-              )}
-              <p className="text-xs text-muted-foreground mt-1">
-                Hyperliquid supports up to 40x leverage for BTC.
+              <p className="text-xs text-muted-foreground">
+                Maximum leverage for BTC on Hyperliquid is 40x.
               </p>
             </div>
           </div>
 
           {/* Footer with Actions */}
-          <SheetFooter className="mt-4">
+          {/* Added mt-6 for more space before footer */}
+          <SheetFooter className="mt-6 pt-4 border-t">
             {/* SheetClose automatically triggers onOpenChange(false) */}
             <SheetClose asChild>
               <Button type="button" variant="outline" disabled={isSaving}>
                 Cancel
               </Button>
             </SheetClose>
-            <Button type="submit" disabled={isSaving}>
+            <Button type="submit" disabled={isSaving || Object.keys(errors).length > 0}>
               {isSaving ? "Saving..." : "Save Template"}
             </Button>
           </SheetFooter>

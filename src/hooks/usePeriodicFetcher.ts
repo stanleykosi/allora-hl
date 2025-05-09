@@ -54,15 +54,33 @@ export function usePeriodicFetcher<T>(
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const intervalIdRef = useRef<NodeJS.Timeout | null>(null);
+  const retryCountRef = useRef<number>(0);
+  const maxRetries = 3;
+  
   // Ref to track if the component is mounted to prevent state updates after unmount
   const isMountedRef = useRef<boolean>(true);
   // Ref to store the fetcher function to avoid dependency issues in useEffect
   const fetcherFnRef = useRef(fetcherFn);
-  fetcherFnRef.current = fetcherFn; // Keep the ref updated with the latest fetcher function
+  fetcherFnRef.current = fetcherFn;
 
-  // Function to perform the fetch
+  // Helper function to perform fetch with timeout
+  const fetchWithTimeout = async (timeoutMs: number): Promise<ActionState<T>> => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    
+    try {
+      const result = await fetcherFnRef.current();
+      clearTimeout(timeoutId);
+      return result;
+    } catch (error) {
+      clearTimeout(timeoutId);
+      throw error;
+    }
+  };
+
+  // Function to perform the fetch with retries
   const performFetch = useCallback(async (isInitialLoad = false) => {
-    // Don't fetch if already loading, unless it's the initial load triggered by effect
+    // Don't fetch if already loading, unless it's the initial load
     if (isLoading && !isInitialLoad) {
       console.log('Fetch skipped: Already loading');
       return;
@@ -70,34 +88,29 @@ export function usePeriodicFetcher<T>(
 
     console.log(`Performing fetch... Initial: ${isInitialLoad}`);
     setIsLoading(true);
-    setError(null); // Clear previous error
+    setError(null);
 
-    // Set a timeout to prevent the loading state from getting stuck
-    const timeoutId = setTimeout(() => {
-      if (isMountedRef.current && isLoading) {
-        console.error('Fetch timeout: Taking too long to complete');
-        setIsLoading(false);
-        setError('Request timed out. The server took too long to respond.');
-      }
-    }, 15000); // 15 second timeout
+    let lastError: Error | null = null;
+    
+    // Try fetching with exponential backoff
+    for (let attempt = 0; attempt <= retryCountRef.current; attempt++) {
+      try {
+        const timeout = Math.min(10000 * Math.pow(2, attempt), 30000); // Start at 10s, max 30s
+        console.log(`Attempt ${attempt + 1} with timeout ${timeout}ms`);
+        
+        const result = await fetchWithTimeout(timeout);
 
-    try {
-      const result = await fetcherFnRef.current(); // Use the ref to call the function
-
-      // Clear the timeout since the fetch completed
-      clearTimeout(timeoutId);
-
-      // Only update state if the component is still mounted
       if (isMountedRef.current) {
         if (result.isSuccess) {
           setData(result.data);
-          setError(null); // Clear error on success
+            setError(null);
+            retryCountRef.current = 0; // Reset retry count on success
           console.log('Fetch successful.');
+            break;
         } else {
-          setError(result.message);
+            lastError = new Error(result.message);
           console.error('Fetch failed:', result.message, 'Error details:', result.error);
-          // Do NOT clear data on normal errors to prevent flashing/disruption
-          // Only clear data for specific critical errors
+            
           if (result.message && (
             result.message.includes("timeout") || 
             result.message.includes("unauthorized") ||
@@ -109,39 +122,50 @@ export function usePeriodicFetcher<T>(
           }
         }
       }
-    } catch (err: unknown) {
-      // Clear the timeout since the fetch completed (with an error)
-      clearTimeout(timeoutId);
+      } catch (err) {
+        lastError = err instanceof Error ? err : new Error('Unknown error');
+        console.error(`Attempt ${attempt + 1} failed:`, err);
+        
+        // If we've hit max retries, or this isn't a timeout error, break
+        if (attempt === retryCountRef.current || 
+            !(lastError.message.includes('timeout') || lastError.message.includes('abort'))) {
+          break;
+        }
+        
+        // Wait before retry (exponential backoff)
+        const delay = Math.min(1000 * Math.pow(2, attempt), 5000);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
 
-      console.error('Fetch exception:', err);
-      if (isMountedRef.current) {
-        const errorMessage = err instanceof Error ? err.message : 'An unexpected error occurred during fetch.';
+    // Handle final error state if all attempts failed
+    if (lastError && isMountedRef.current) {
+      const errorMessage = lastError.message;
         setError(errorMessage);
         
-        // Only clear data for network errors or serious exceptions
-        if (err instanceof Error && (
-          errorMessage.includes("network") || 
+      if (errorMessage.includes("timeout") || errorMessage.includes("abort")) {
+        retryCountRef.current = Math.min(retryCountRef.current + 1, maxRetries);
+        console.warn(`Increased retry count to ${retryCountRef.current}`);
+      }
+      
+      if (errorMessage.includes("network") || 
           errorMessage.includes("timeout") || 
-          errorMessage.includes("fetch")
-        )) {
+          errorMessage.includes("fetch")) {
           console.warn("Network error detected - clearing stale data");
           setData(null);
         }
       }
-    } finally {
-      // Clear the timeout since the fetch completed
-      clearTimeout(timeoutId);
 
-      // Only set loading false if mounted
+    // Reset loading state if still mounted
       if (isMountedRef.current) {
         setIsLoading(false);
       }
-    }
-  }, [isLoading]); // isLoading is included to prevent concurrent fetches from manual refresh
+  }, [isLoading]); // isLoading is included to prevent concurrent fetches
 
   // Effect for initial fetch and setting up the interval
   useEffect(() => {
     isMountedRef.current = true;
+    retryCountRef.current = 0; // Reset retry count on mount
     console.log(`Setting up periodic fetcher. Interval: ${intervalMs}ms`);
 
     // Perform initial fetch immediately if interval is valid

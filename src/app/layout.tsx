@@ -16,6 +16,7 @@
  * - The `lang="en"` attribute sets the default language for accessibility.
  * - Includes the main `<body>` tag where page content will be rendered.
  * - `<Toaster />` is added to enable toast notifications throughout the app. Requires Shadcn UI setup.
+ * - `antialiased` class added for smoother font rendering.
  */
 import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
@@ -53,8 +54,9 @@ export default function RootLayout({
       {/*
        * Apply the Inter font className to the body for consistent typography.
        * Use suppressHydrationWarning on <html> if using theme providers that might cause mismatches.
+       * Added `antialiased` for better font smoothing.
        */}
-      <body className={inter.className}>
+      <body className={`${inter.className} antialiased`}>
         {/* Render the children components (page content or nested layouts) */}
         {children}
         {/* Render the Toaster component to handle toast notifications */}

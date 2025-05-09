@@ -1,75 +1,64 @@
 /**
  * @description
- * Client Component: Displays the status of the Hyperliquid API configuration.
- * Shows a warning when the API is not properly configured with a valid API secret.
+ * Client Component: Checks if the Hyperliquid API is configured for trading (i.e., API secret is set)
+ * and displays a status indicator accordingly ('connected' or 'disabled').
+ *
+ * Key features:
+ * - Calls the `checkApiConfigAction` Server Action on mount.
+ * - Renders the `StatusIndicator` component based on the check result.
+ * - Provides visual feedback on whether trading functionality is available.
+ *
+ * @dependencies
+ * - react: For component structure and hooks (useState, useEffect).
+ * - @/actions/hyperliquid-actions: Server Action to check API configuration.
+ * - ./StatusIndicator: Component to display the status visually.
+ *
+ * @notes
+ * - Runs only once on mount to check the configuration status.
  */
 "use client";
 
-import React, { useState, useEffect } from "react";
-import { AlertTriangle } from "lucide-react";
-import { checkApiConfigAction } from "@/actions/hyperliquid-actions";
-import { Badge } from "@/components/ui/badge";
-import { 
-  Tooltip, 
-  TooltipContent, 
-  TooltipProvider, 
-  TooltipTrigger 
-} from "@/components/ui/tooltip";
+import React, { useState, useEffect } from 'react';
+import { checkApiConfigAction } from '@/actions/hyperliquid-actions';
+import StatusIndicator, { StatusType } from './StatusIndicator';
 
-export const ApiStatusIndicator: React.FC = () => {
-  const [isConfigured, setIsConfigured] = useState<boolean | null>(null);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
+const ApiStatusIndicator: React.FC = () => {
+  const [status, setStatus] = useState<StatusType>('connecting'); // Start as connecting
 
   useEffect(() => {
-    const checkApiConfig = async () => {
+    const checkConfig = async () => {
       try {
         const result = await checkApiConfigAction();
-        setIsConfigured(result.isSuccess);
+        // If the action returns success, it means the config check passed (secret exists)
+        if (result.isSuccess) {
+          setStatus('connected');
+        } else {
+          // If the action returns failure, specifically check if it's due to missing secret
+          if (result.error?.includes("Missing or invalid API secret")) {
+            setStatus('idle'); // Set to idle if secret is explicitly missing/invalid
+          } else {
+            setStatus('error'); // Set to generic error for other failures
+          }
+
+        }
       } catch (error) {
-        console.error("Failed to check API configuration:", error);
-        setIsConfigured(false);
-      } finally {
-        setIsLoading(false);
+        console.error("Error checking API config status:", error);
+        setStatus('error'); // Set to error on unexpected exceptions
       }
     };
 
-    checkApiConfig();
-  }, []);
-
-  if (isLoading) {
-    return null; // Don't show anything while loading
-  }
-
-  if (isConfigured) {
-    return null; // Don't show anything if configured correctly
-  }
+    checkConfig();
+  }, []); // Run only once on mount
 
   return (
-    <TooltipProvider>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Badge variant="destructive" className="flex items-center gap-1 cursor-help">
-            <AlertTriangle className="h-3 w-3" />
-            API Not Configured
-          </Badge>
-        </TooltipTrigger>
-        <TooltipContent className="max-w-xs p-3">
-          <p className="font-semibold mb-1">API Configuration Error</p>
-          <p className="text-sm mb-2">
-            The Hyperliquid API is not properly configured. Trading functionality is disabled.
-          </p>
-          <div className="text-xs space-y-1">
-            <p className="font-medium">How to fix:</p>
-            <ol className="list-decimal ml-4 space-y-1">
-              <li>Set the HYPERLIQUID_API_SECRET environment variable with your valid API key</li>
-              <li>Ensure the key is a 64-character hexadecimal string (with or without 0x prefix)</li>
-              <li>Restart the application after setting the environment variable</li>
-            </ol>
-          </div>
-        </TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
+    <StatusIndicator
+      status={status}
+      serviceName="Trade API"
+      className="text-xs"
+    // Optionally hide text for a more compact indicator
+    // showText={false}
+    />
   );
 };
 
-export default ApiStatusIndicator; 
+export default ApiStatusIndicator;

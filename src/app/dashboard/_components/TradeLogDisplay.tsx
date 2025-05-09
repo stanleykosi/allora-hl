@@ -92,18 +92,22 @@ const TradeLogDisplay = forwardRef<TradeLogDisplayRef, TradeLogDisplayProps>(({
   // State for manual refresh loading indicator
   const [isManualLoading, setIsManualLoading] = useState(false);
 
-  // Create a ref for DOM access to the button
-  const refreshButtonRef = useRef<HTMLButtonElement>(null);
-  const isRefreshingRef = useRef(false);
+  // Add state to track last update time for debugging
+  const [lastRefreshTime, setLastRefreshTime] = useState<string>('');
 
-  // Fetch logs using the hook
+  // Create a custom fetcher function that includes timestamp to avoid caching
+  const customFetcher = useCallback(async () => {
+    return fetchTradeLogAction(100, Date.now());
+  }, []);
+
+  // Fetch logs using the hook with the customFetcher
   const {
     data: logs,
     isLoading: isPeriodicLoading, // Loading state from the hook (covers initial load)
     error,
     refresh,
   } = usePeriodicFetcher(
-    fetchTradeLogAction, // Action to fetch logs
+    customFetcher, // Use our custom fetcher that includes a timestamp
     LOG_REFRESH_INTERVAL, // Interval (null disables periodic)
     initialLogEntries, // Initial data
   );
@@ -111,86 +115,86 @@ const TradeLogDisplay = forwardRef<TradeLogDisplayRef, TradeLogDisplayProps>(({
   // Combine loading states: true if either periodic or manual refresh is happening
   const isLoading = isPeriodicLoading || isManualLoading;
 
-  // Use the initial error from props if the first client-side fetch hasn't happened yet or if fetcher has no error yet
-  const currentError = logs === null && !isLoading ? initialError : error;
+  // Fix error handling - don't show error if we have logs or are loading
+  const currentError = (!isLoading && ((logs && logs.length === 0) || logs === null)) ? error : null;
+
   // Prefer fresh data from the fetcher, fallback to initial data if fetcher hasn't populated yet
   const currentLogs = logs ?? initialLogEntries;
 
-  // Direct DOM-based refresh function that doesn't rely on React state
+  // Enhanced refresh function with better error handling
   const performRefresh = useCallback(async () => {
-    // Guard against multiple calls
-    if (isRefreshingRef.current) {
-      console.log('Already refreshing, cancelling');
-      isRefreshingRef.current = false;
-      setIsManualLoading(false);
-      return;
-    }
+    if (isManualLoading) return; // Prevent multiple clicks
+
+    setIsManualLoading(true);
 
     try {
-      // Set visual state
-      isRefreshingRef.current = true;
-      setIsManualLoading(true);
+      const now = new Date();
+      console.log(`Starting trade log refresh at ${now.toISOString()}...`);
+      console.log(`Current browser time: ${now.toString()}`);
 
-      // Update button text directly for immediate feedback
-      if (refreshButtonRef.current) {
-        const iconEl = refreshButtonRef.current.querySelector('.refresh-icon');
-        if (iconEl) {
-          iconEl.classList.add('animate-spin');
-        }
-        refreshButtonRef.current.querySelector('.button-text')!.textContent = 'Refreshing...';
+      // Force cache invalidation by passing a timestamp parameter
+      // This ensures we're not getting cached results from previous requests
+      const fetchResult = await fetchTradeLogAction(100, Date.now());
+
+      // Log the results to help debug
+      if (fetchResult.isSuccess && fetchResult.data) {
+        console.log(`Fetched ${fetchResult.data.length} trade logs, newest timestamp:`,
+          fetchResult.data.length > 0 ? new Date(fetchResult.data[0].timestamp).toISOString() : 'No logs');
+
+        // Log the first few entries to see their timestamps
+        const recentLogs = fetchResult.data.slice(0, 5);
+        console.log('Most recent logs:', recentLogs.map(log => ({
+          timestamp: new Date(log.timestamp).toISOString(),
+          symbol: log.symbol,
+          direction: log.direction,
+          status: log.status
+        })));
+      } else {
+        console.error('Error fetching trade logs:', fetchResult.message);
       }
 
-      // Perform the refresh
-      console.log('Starting refresh operation');
-      await refresh();
-      console.log('Refresh completed');
+      console.log('Trade log refresh completed successfully');
+
+      // Update last refresh time
+      setLastRefreshTime(new Date().toLocaleTimeString());
     } catch (error) {
-      console.error('Error during refresh:', error);
+      console.error('Error during trade log refresh:', error);
     } finally {
-      // Reset all visual state
-      isRefreshingRef.current = false;
       setIsManualLoading(false);
-
-      // Update button directly
-      if (refreshButtonRef.current) {
-        const iconEl = refreshButtonRef.current.querySelector('.refresh-icon');
-        if (iconEl) {
-          iconEl.classList.remove('animate-spin');
-        }
-        refreshButtonRef.current.querySelector('.button-text')!.textContent = 'Refresh Logs';
-      }
-
-      console.log('Refresh operation complete, visual state reset');
     }
-  }, [refresh]);
+  }, [refresh, isManualLoading]);
 
-  // Add effect to ensure button state is properly reset on component changes
-  useEffect(() => {
-    // Reset on mount
-    isRefreshingRef.current = false;
-    setIsManualLoading(false);
-
-    // Reset on unmount
-    return () => {
-      isRefreshingRef.current = false;
-    };
-  }, []);
-
-  // Expose the refresh method via ref
+  // Expose the refresh method via ref with better implementation
   useImperativeHandle(ref, () => ({
     refresh: async () => {
-      performRefresh();
-      return Promise.resolve();
+      try {
+        console.log('External refresh request received');
+        await performRefresh();
+        console.log('External refresh completed');
+        return Promise.resolve();
+      } catch (error) {
+        console.error('Error in external refresh:', error);
+        return Promise.resolve();
+      }
     }
   }), [performRefresh]);
+
+  // Add effect to log when data changes
+  useEffect(() => {
+    if (logs) {
+      console.log(`Logs updated, count: ${logs.length}`);
+    }
+  }, [logs]);
 
   const renderTableContent = () => {
     // Prioritize showing loading state
     if (isLoading && (!currentLogs || currentLogs.length === 0)) {
       return (
         <TableRow>
-          <TableCell colSpan={8} className="h-40 text-center">
-            <LoadingSpinner />
+          <TableCell colSpan={8} className="h-32 text-center">
+            <div className="flex justify-center items-center">
+              <LoadingSpinner />
+            </div>
           </TableCell>
         </TableRow>
       );
@@ -200,8 +204,10 @@ const TradeLogDisplay = forwardRef<TradeLogDisplayRef, TradeLogDisplayProps>(({
     if (currentError && (!currentLogs || currentLogs.length === 0)) {
       return (
         <TableRow>
-          <TableCell colSpan={8} className="h-24 text-center">
-            <ErrorDisplay error={currentError} />
+          <TableCell colSpan={8} className="h-32 text-center">
+            <div className="flex justify-center items-center">
+              <ErrorDisplay error={currentError} />
+            </div>
           </TableCell>
         </TableRow>
       );
@@ -211,8 +217,10 @@ const TradeLogDisplay = forwardRef<TradeLogDisplayRef, TradeLogDisplayProps>(({
     if (!currentLogs || currentLogs.length === 0) {
       return (
         <TableRow>
-          <TableCell colSpan={8} className="h-24 text-center text-muted-foreground">
-            No trade logs found. Trades executed via this app will appear here.
+          <TableCell colSpan={8} className="h-32 text-center">
+            <div className="flex justify-center items-center text-muted-foreground">
+              No trade logs found. Trades executed via this app will appear here.
+            </div>
           </TableCell>
         </TableRow>
       );
@@ -221,13 +229,13 @@ const TradeLogDisplay = forwardRef<TradeLogDisplayRef, TradeLogDisplayProps>(({
     // Display log entries
     return currentLogs.map((log) => (
       <TableRow key={log.id}>
-        <TableCell className="text-xs">
+        <TableCell className="text-xs whitespace-nowrap">
           {formatDateTime(log.timestamp)}
         </TableCell>
-        <TableCell>{log.symbol}</TableCell>
+        <TableCell className="font-medium">{log.symbol}</TableCell>
         <TableCell>
           <span
-            className={clsx({
+            className={clsx("font-medium", {
               "text-green-600": log.direction.toLowerCase() === "long",
               "text-red-600": log.direction.toLowerCase() === "short",
             })}
@@ -235,8 +243,8 @@ const TradeLogDisplay = forwardRef<TradeLogDisplayRef, TradeLogDisplayProps>(({
             {log.direction.toUpperCase()}
           </span>
         </TableCell>
-        <TableCell className="text-right">{formatNumber(log.size, 6)}</TableCell>
-        <TableCell className="text-right">
+        <TableCell className="text-right font-mono text-sm">{formatNumber(log.size, 6)}</TableCell>
+        <TableCell className="text-right font-mono text-sm">
           {log.status === 'filled' || log.status === 'partially_filled' ? formatCurrency(log.entryPrice) : 'N/A'}
         </TableCell>
         <TableCell>
@@ -245,16 +253,16 @@ const TradeLogDisplay = forwardRef<TradeLogDisplayRef, TradeLogDisplayProps>(({
               "bg-green-100 text-green-800": log.status === "filled",
               "bg-yellow-100 text-yellow-800": log.status === "resting_ioc" || log.status === "partially_filled",
               "bg-red-100 text-red-800": log.status === "failed",
-              "bg-gray-100 text-gray-800": log.status !== "filled" && log.status !== "failed" && log.status !== "resting_ioc" && log.status !== "partially_filled", // Fallback for other statuses
+              "bg-gray-100 text-gray-800": log.status !== "filled" && log.status !== "failed" && log.status !== "resting_ioc" && log.status !== "partially_filled",
             })}
           >
             {log.status}
           </span>
         </TableCell>
-        <TableCell className="text-xs font-mono">
+        <TableCell className="text-xs font-mono truncate max-w-[120px]" title={log.hyperliquidOrderId || "N/A"}>
           {log.hyperliquidOrderId || "N/A"}
         </TableCell>
-        <TableCell className="text-xs text-destructive max-w-[150px] truncate" title={log.errorMessage ?? ''}>
+        <TableCell className="text-xs text-destructive truncate max-w-[120px]" title={log.errorMessage ?? ''}>
           {log.errorMessage || "None"}
         </TableCell>
       </TableRow>
@@ -263,54 +271,49 @@ const TradeLogDisplay = forwardRef<TradeLogDisplayRef, TradeLogDisplayProps>(({
 
   return (
     <Card>
-      <CardHeader className="flex flex-row items-center justify-between">
+      <CardHeader className="flex flex-row items-center justify-between pb-2">
         <div>
           <CardTitle>Trade Log</CardTitle>
           <CardDescription>
             History of trades executed through this application.
-            {currentError && currentLogs && (
+            {currentError && (
               <span className="text-red-600 ml-2">(Error loading updates)</span>
+            )}
+            {lastRefreshTime && !isLoading && (
+              <span className="text-xs ml-2 text-muted-foreground">(Last refreshed: {lastRefreshTime})</span>
             )}
           </CardDescription>
         </div>
 
-        {/* Custom button implementation that doesn't rely on React state for clicking */}
-        <button
-          ref={refreshButtonRef}
-          className={clsx(
-            "relative px-3 py-2 text-sm font-medium rounded-md inline-flex items-center justify-center gap-2",
-            "bg-primary text-primary-foreground shadow hover:bg-primary/90",
-            isManualLoading ? "opacity-90" : "opacity-100"
-          )}
-          onClick={(e) => {
-            e.preventDefault();
-            console.log('Refresh button clicked!');
-            performRefresh();
-          }}
-          type="button"
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={performRefresh}
+          disabled={isManualLoading}
         >
-          <RefreshCw className={clsx("h-4 w-4 refresh-icon", isManualLoading && "animate-spin")} />
-          <span className="button-text">Refresh Logs</span>
-        </button>
-
+          <RefreshCw className={clsx("h-4 w-4 mr-2", isManualLoading && "animate-spin")} />
+          {isManualLoading ? 'Refreshing...' : 'Refresh Logs'}
+        </Button>
       </CardHeader>
-      <CardContent>
-        <div className="min-h-[200px]">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-[150px]">Timestamp</TableHead>
-                <TableHead>Symbol</TableHead>
-                <TableHead>Direction</TableHead>
-                <TableHead className="text-right">Size</TableHead>
-                <TableHead className="text-right">Entry Price</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Order ID</TableHead>
-                <TableHead className="w-[150px]">Error Message</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>{renderTableContent()}</TableBody>
-          </Table>
+      <CardContent className="p-0">
+        <div className="border rounded-md">
+          <div className="overflow-auto max-h-[300px]">
+            <Table>
+              <TableHeader className="sticky top-0 bg-background border-b z-10">
+                <TableRow>
+                  <TableHead className="w-[150px]">Timestamp</TableHead>
+                  <TableHead>Symbol</TableHead>
+                  <TableHead>Direction</TableHead>
+                  <TableHead className="text-right">Size</TableHead>
+                  <TableHead className="text-right">Entry Price</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Order ID</TableHead>
+                  <TableHead className="w-[150px]">Error Message</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>{renderTableContent()}</TableBody>
+            </Table>
+          </div>
         </div>
       </CardContent>
     </Card>

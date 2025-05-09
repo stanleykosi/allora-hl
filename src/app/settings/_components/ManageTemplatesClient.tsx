@@ -11,6 +11,7 @@
  * - Handles opening the editor for creation or editing.
  * - Handles initiating the delete process (confirmation managed by `TemplateList`).
  * - Refreshes the template list after save or delete actions using `router.refresh()`.
+ * - Uses responsive header layout.
  *
  * @dependencies
  * - react: For component structure and hooks (useState, useCallback).
@@ -91,16 +92,21 @@ const ManageTemplatesClient: React.FC<ManageTemplatesClientProps> = ({
 
   return (
     <Card>
-      <CardHeader className="flex flex-row items-center justify-between">
-        <div>
+      {/* Use flex-row for header layout, justify-between */}
+      <CardHeader className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        {/* Title and Description */}
+        <div className="flex-grow">
           <CardTitle>Manage Trade Templates</CardTitle>
-          <CardDescription>
+          <CardDescription className="mt-1">
             Create, edit, or delete reusable trade parameter templates.
           </CardDescription>
         </div>
-        <Button onClick={handleCreateNew} size="sm">
-          <Plus className="mr-2 h-4 w-4" /> Create New
-        </Button>
+        {/* Create Button */}
+        <div className="flex-shrink-0">
+          <Button onClick={handleCreateNew} size="sm">
+            <Plus className="mr-2 h-4 w-4" /> Create New
+          </Button>
+        </div>
       </CardHeader>
       <CardContent>
         {initialError && <ErrorDisplay error={initialError} className="mb-4" />}

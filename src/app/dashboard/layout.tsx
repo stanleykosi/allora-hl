@@ -13,13 +13,15 @@
  *
  * @notes
  * - This is a Server Component by default.
- * - The header now contains a functional link to the `/settings` page.
- * - The Suspense fallback uses `loading.tsx` in the same directory.
+ * - Uses a responsive container with padding.
+ * - Header uses flexbox for alignment and spacing.
+ * - Main content area includes subtle border for visual separation.
  */
 import React from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Settings } from "lucide-react";
+import { cn } from "@/lib/utils"; // Import cn utility
 
 /**
  * DashboardLayout component.
@@ -33,21 +35,19 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }): React.ReactElement {
   return (
-    <div className="flex flex-col min-h-screen">
+    <div className="flex flex-col min-h-screen bg-muted/40">
       {/* Header Section */}
-      <header className="sticky top-0 z-50 w-full border-b border-border/40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 p-4">
-        <div className="container mx-auto flex justify-between items-center">
-          <h1 className="text-xl font-bold">Allora / Hyperliquid</h1>
-          {/* Header Actions: Status Indicators, Master Switch (future), Settings Link */}
-          <div className="flex items-center space-x-4">
-            {/* Placeholder for Status Indicators */}
-            {/* <div className="flex space-x-2">
-              <AlloraStatusIndicator />
-              <StatusIndicator status={'idle'} serviceName="Hyperliquid" />
-            </div> */}
+      <header className="sticky top-0 z-40 w-full border-b bg-background">
+        <div className="container mx-auto flex h-16 items-center justify-between px-4 sm:px-6 lg:px-8">
+          {/* Left side: Title */}
+          <Link href="/dashboard" className="text-lg font-bold tracking-tight">
+            Allora / Hyperliquid
+          </Link>
 
-            {/* Placeholder for Master Trade Switch */}
-            {/* <div>Master Switch</div> */}
+          {/* Right side: Actions */}
+          <div className="flex items-center space-x-4">
+            {/* Placeholder for Status Indicators & Master Switch (populated by Client Component) */}
+            {/* <div id="dashboard-header-status"></div> */}
 
             {/* Settings Link */}
             <Button variant="ghost" size="icon" asChild>
@@ -60,18 +60,20 @@ export default function DashboardLayout({
       </header>
 
       {/* Main Content Area */}
-      <main className="flex-1 container mx-auto p-4 md:p-6 lg:p-8">
-        {/*
-         * Wrap children in Suspense. The `loading.tsx` file in the same directory
-         * will be automatically used as the fallback UI by Next.js App Router.
-         * If `loading.tsx` wasn't used, a manual fallback like <LoadingSpinner /> would be needed here.
-         */}
-        {children}
+      <main className="flex-1 container mx-auto px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+        {/* Subtle border added for visual separation if needed, consider removing if cards provide enough separation */}
+        {/* <div className="border rounded-lg bg-background shadow-sm p-4 md:p-6 lg:p-8"> */}
+          {/*
+           * Wrap children in Suspense. The `loading.tsx` file in the same directory
+           * will be automatically used as the fallback UI by Next.js App Router.
+           */}
+          {children}
+        {/* </div> */}
       </main>
 
       {/* Footer Placeholder (Optional) */}
-      {/* <footer className="border-t p-4 text-center text-sm text-muted-foreground">
-        © 2025 Trade Assistant
+      {/* <footer className="py-4 text-center text-sm text-muted-foreground">
+        © {new Date().getFullYear()} Trade Assistant
       </footer> */}
     </div>
   );

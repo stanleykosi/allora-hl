@@ -34,6 +34,7 @@
  * - Takes initial data and error states as props from the parent Server Component (`DashboardPage`).
  * - Manages fetching and state for Hyperliquid account info and positions.
  * - The alert logic currently uses a simple threshold (1% difference in the opposite direction) and checks against the latest 8hr prediction. This logic can be refined.
+ * - Improved layout structure with dedicated header row for status/refresh.
  */
 "use client";
 
@@ -218,7 +219,7 @@ export default function DashboardClientContent({
       setAlertStatusMap(newAlertStatusMap);
     }
 
-  }, [currentPredictions, currentPositions, settings.alertsEnabled]); // Removed alertStatusMap from dependencies
+  }, [currentPredictions, currentPositions, settings.alertsEnabled, alertStatusMap]); // Added alertStatusMap to dependencies
 
 
   // --- Callbacks ---
@@ -251,8 +252,9 @@ export default function DashboardClientContent({
   // --- Render Logic ---
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center mb-4">
-        <h2 className="text-2xl font-semibold">Dashboard</h2>
+      {/* Header Row for Status and Refresh */}
+      <div className="flex flex-col sm:flex-row justify-between items-center gap-4 mb-6">
+        <h2 className="text-2xl font-semibold tracking-tight">Dashboard</h2>
         <div className="flex items-center space-x-4">
           <AlloraStatusIndicator key="allora-status" />
           <HyperliquidStatusIndicator key="hyperliquid-status" />
@@ -268,6 +270,7 @@ export default function DashboardClientContent({
         </div>
       </div>
 
+      {/* Main Content Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left/Main Column */}
         <div className="lg:col-span-2 space-y-6">
@@ -292,7 +295,7 @@ export default function DashboardClientContent({
         </div>
 
         {/* Right Column */}
-        <div className="space-y-6">
+        <div className="lg:col-span-1 space-y-5">
           <PredictionFeed
             key="prediction-feed"
             initialPredictions={initialPredictions} // Pass initial for first render

@@ -9,6 +9,7 @@
  * - Provides switches to enable/disable contradictory prediction alerts and the master trade execution switch.
  * - Uses Shadcn UI components for form elements.
  * - Performs basic validation on interval inputs.
+ * - Improved responsive layout using grid.
  *
  * @dependencies
  * - react: For component structure and hooks (useState, useEffect).
@@ -83,10 +84,14 @@ const SettingsForm: React.FC = () => {
     // Validate and update localStorage
     const numericValue = parseFloat(value);
     const newErrors = { ...errors };
+    const MIN_INTERVAL_SEC = 5; // Minimum interval of 5 seconds
 
     if (isNaN(numericValue) || numericValue <= 0) {
       newErrors[settingKey] = "Interval must be a positive number.";
-    } else {
+    } else if (numericValue < MIN_INTERVAL_SEC) {
+       newErrors[settingKey] = `Interval must be at least ${MIN_INTERVAL_SEC} seconds.`;
+    }
+     else {
       delete newErrors[settingKey]; // Clear error if valid
       // Save valid number (in milliseconds) to localStorage via the hook
       setSettings((prevSettings) => ({
@@ -119,15 +124,16 @@ const SettingsForm: React.FC = () => {
       </CardHeader>
       <CardContent className="space-y-6">
         {/* Prediction Refresh Interval */}
-        <div className="grid grid-cols-1 md:grid-cols-3 items-center gap-4">
-          <Label htmlFor="predictionInterval" className="md:text-right">
+        {/* Use grid for responsive layout */}
+        <div className="grid grid-cols-1 md:grid-cols-3 items-start md:items-center gap-4">
+          <Label htmlFor="predictionInterval" className="md:text-right md:mt-2">
             Prediction Refresh Interval (seconds)
           </Label>
-          <div className="md:col-span-2">
+          <div className="md:col-span-2 space-y-1">
             <Input
               id="predictionInterval"
               type="number"
-              min="1" // Basic HTML5 validation
+              min="5" // Enforce minimum in HTML
               step="1"
               value={predictionIntervalInput}
               onChange={(e) =>
@@ -141,26 +147,26 @@ const SettingsForm: React.FC = () => {
               placeholder="e.g., 60"
             />
             {errors.predictionRefreshInterval && (
-              <p className="text-xs text-destructive mt-1">
+              <p className="text-xs text-destructive">
                 {errors.predictionRefreshInterval}
               </p>
             )}
-            <p className="text-xs text-muted-foreground mt-1">
-              How often to fetch new predictions from Allora (e.g., 60 for 1 minute).
+            <p className="text-xs text-muted-foreground">
+              How often to fetch new predictions from Allora (min 5 sec).
             </p>
           </div>
         </div>
 
         {/* Account Refresh Interval */}
-        <div className="grid grid-cols-1 md:grid-cols-3 items-center gap-4">
-          <Label htmlFor="accountInterval" className="md:text-right">
+         <div className="grid grid-cols-1 md:grid-cols-3 items-start md:items-center gap-4">
+          <Label htmlFor="accountInterval" className="md:text-right md:mt-2">
             Account Info Refresh Interval (seconds)
           </Label>
-          <div className="md:col-span-2">
+          <div className="md:col-span-2 space-y-1">
             <Input
               id="accountInterval"
               type="number"
-              min="1"
+              min="5" // Enforce minimum in HTML
               step="1"
               value={accountIntervalInput}
               onChange={(e) =>
@@ -174,53 +180,58 @@ const SettingsForm: React.FC = () => {
               placeholder="e.g., 30"
             />
             {errors.accountRefreshInterval && (
-              <p className="text-xs text-destructive mt-1">
+              <p className="text-xs text-destructive">
                 {errors.accountRefreshInterval}
               </p>
             )}
-            <p className="text-xs text-muted-foreground mt-1">
-              How often to fetch account balance and positions from Hyperliquid (e.g., 30).
+            <p className="text-xs text-muted-foreground">
+              How often to fetch account/positions from Hyperliquid (min 5 sec).
             </p>
           </div>
         </div>
 
         {/* Alert Toggle */}
-        <div className="flex items-center justify-between space-x-4 border-t pt-6">
-          <div className="flex flex-col space-y-1">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between space-y-2 sm:space-y-0 sm:space-x-4 border-t pt-6">
+          <div className="flex-grow space-y-1">
             <Label htmlFor="alertsEnabled">
               Enable Contradictory Prediction Alerts
             </Label>
-            <span className="text-xs text-muted-foreground">
-              Show an alert if a new prediction opposes your open position basis.
-            </span>
+            <p className="text-xs text-muted-foreground">
+              Show an alert on open positions if a new 8hr prediction opposes its basis.
+            </p>
           </div>
-          <Switch
-            id="alertsEnabled"
-            checked={settings.alertsEnabled}
-            onCheckedChange={(checked) =>
-              handleSwitchChange(checked, "alertsEnabled")
-            }
-          />
+          <div className="flex-shrink-0">
+            <Switch
+              id="alertsEnabled"
+              checked={settings.alertsEnabled}
+              onCheckedChange={(checked) =>
+                handleSwitchChange(checked, "alertsEnabled")
+              }
+            />
+          </div>
         </div>
 
         {/* Master Trade Switch Toggle */}
-        <div className="flex items-center justify-between space-x-4 border-t pt-6">
-          <div className="flex flex-col space-y-1">
-            <Label htmlFor="tradeSwitchEnabled">
-              Master Trade Execution Switch
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between space-y-2 sm:space-y-0 sm:space-x-4 border-t pt-6">
+           <div className="flex-grow space-y-1">
+            <Label htmlFor="tradeSwitchEnabled" className="font-medium text-base">
+              Master Trade Execution
             </Label>
-            <span className="text-xs text-muted-foreground">
-              Enable or disable the ability to execute trades through this application. Must be ON to confirm trades.
-            </span>
+            <p className="text-xs text-muted-foreground">
+              Enable or disable the ability to execute trades. Must be ON to confirm trades.
+            </p>
           </div>
-          <Switch
-            id="tradeSwitchEnabled"
-            checked={settings.tradeSwitchEnabled}
-            onCheckedChange={(checked) =>
-              handleSwitchChange(checked, "tradeSwitchEnabled")
-            }
-            className={settings.tradeSwitchEnabled ? "data-[state=checked]:bg-green-600" : ""}
-          />
+           <div className="flex-shrink-0">
+            <Switch
+              id="tradeSwitchEnabled"
+              checked={settings.tradeSwitchEnabled}
+              onCheckedChange={(checked) =>
+                handleSwitchChange(checked, "tradeSwitchEnabled")
+              }
+              // Apply green styling when checked for emphasis
+              className={settings.tradeSwitchEnabled ? "data-[state=checked]:bg-green-600" : ""}
+            />
+          </div>
         </div>
       </CardContent>
     </Card>

@@ -11,6 +11,7 @@
  * - Handles loading, error, and empty states.
  * - Allows selecting a prediction via click, highlighting the selected item.
  * - Calls the `onSelectPrediction` prop when a prediction is selected or deselected.
+ * - Improved card styling and scrollable area.
  *
  * @dependencies
  * - react: For component structure, state (`useState`), and effects (`useEffect`).
@@ -25,11 +26,11 @@
  * - @/components/ui/ErrorDisplay: Component to display error messages.
  * - @/components/ui/badge: Shadcn Badge component for displaying timeframes.
  * - clsx: Utility for conditional class names.
- * - lucide-react: Provides icons (e.g., CalendarClock).
+ * - lucide-react: Provides icons (e.g., CalendarClock, Target).
  *
  * @notes
  * - This component manages its own data fetching cycle after receiving initial data via props.
- * - The actual selection state (`selectedPredictionId`) is managed locally, but the
+ * - The actual selection state (`selectedPredictionKey`) is managed locally, but the
  * parent component is notified via `onSelectPrediction`.
  */
 "use client";
@@ -109,6 +110,13 @@ const PredictionFeed: React.FC<PredictionFeedProps> = ({
     (a, b) => b.timestamp - a.timestamp,
   );
 
+  // Check if data is stale
+  const isDataStale = Boolean(
+    error &&
+    currentPredictions[0]?.timestamp &&
+    (new Date().getTime() - new Date(currentPredictions[0].timestamp).getTime()) > (settings.predictionRefreshInterval * 2) // Example: stale if older than 2 intervals
+  );
+
   // Handler for clicking on a prediction card
   const handlePredictionClick = (prediction: AlloraPrediction) => {
     const predictionKey = `${prediction.topicId}-${prediction.timestamp}`;
@@ -135,7 +143,11 @@ const PredictionFeed: React.FC<PredictionFeedProps> = ({
 
     if (currentError && !currentPredictions.length) {
       // Show error only if there's no stale data
-      return <ErrorDisplay error={currentError} />;
+      return (
+        <div className="flex justify-center items-center h-40">
+          <ErrorDisplay error={currentError} />
+        </div>
+      );
     }
 
     if (!currentPredictions || currentPredictions.length === 0) {
@@ -148,7 +160,8 @@ const PredictionFeed: React.FC<PredictionFeedProps> = ({
 
     // Display predictions
     return (
-      <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2">
+      // Increased max height and added padding-right for scrollbar
+      <div className="space-y-3 max-h-[600px] overflow-y-auto pr-3">
         {currentPredictions.map((prediction) => {
           const predictionKey = `${prediction.topicId}-${prediction.timestamp}`;
           const isSelected = selectedPredictionKey === predictionKey;
@@ -157,30 +170,38 @@ const PredictionFeed: React.FC<PredictionFeedProps> = ({
             <Card
               key={predictionKey}
               className={clsx(
-                "cursor-pointer transition-all hover:shadow-md",
+                "cursor-pointer transition-all hover:shadow-md relative overflow-hidden rounded-xl", // Changed border approach
                 isSelected
-                  ? "border-primary ring-2 ring-primary ring-offset-2"
-                  : "border-border",
+                  ? "ring-[3px] ring-inset ring-border" // Use ring-inset with border color for double line effect
+                  : "border border-border",
               )}
               onClick={() => handlePredictionClick(prediction)}
             >
-              <CardContent className="p-3 text-sm">
-                <div className="flex justify-between items-center mb-1">
-                  <Badge variant="secondary" className="text-xs">
-                    {prediction.timeframe} Target
-                  </Badge>
+              <CardContent className="p-3 text-sm space-y-1">
+                {/* Header row: Timeframe and Timestamp */}
+                <div className="flex justify-between items-center">
+                  <div className="flex items-center gap-1">
+                    <Target size={14} className="text-primary flex-shrink-0" />
+                    <Badge variant="secondary" className="text-xs font-medium">
+                      {prediction.timeframe} Target
+                    </Badge>
+                  </div>
                   <span className="text-xs text-muted-foreground flex items-center gap-1">
                     <CalendarClock size={12} />
                     {formatDateTime(prediction.timestamp, {
+                      month: 'short',
+                      day: 'numeric',
+                      year: 'numeric',
                       hour: "2-digit",
                       minute: "2-digit",
                       second: "2-digit",
+                      hour12: false, // Use 24hr format
                     })}
                   </span>
                 </div>
-                <div className="flex items-center gap-2">
-                  <Target size={16} className="text-primary" />
-                  <span className="font-semibold text-base">
+                {/* Price row */}
+                <div className="flex items-center pt-2 justify-start">
+                  <span className="font-semibold text-lg text-foreground">
                     {formatCurrency(prediction.price, {
                       minimumFractionDigits: 2,
                       maximumFractionDigits: 2,
@@ -189,7 +210,7 @@ const PredictionFeed: React.FC<PredictionFeedProps> = ({
                 </div>
                 {/* Optional: Display confidence interval if needed */}
                 {/* {prediction.confidenceIntervalValues && (
-                  <p className="text-xs text-muted-foreground mt-1">
+                  <p className="text-xs text-muted-foreground pt-1">
                     Confidence: {formatCurrency(prediction.confidenceIntervalValues[0])} - {formatCurrency(prediction.confidenceIntervalValues[1])}
                   </p>
                 )} */}
@@ -208,12 +229,8 @@ const PredictionFeed: React.FC<PredictionFeedProps> = ({
         <CardDescription>
           Latest price predictions fetched from the Allora network. Click to
           select.
-          {error && currentPredictions.length > 0 && (
-            <>
-              {currentPredictions[0]?.timestamp && new Date().getTime() - new Date(currentPredictions[0].timestamp).getTime() > 60000 && (
-                <span className="text-red-600 ml-2">(Stale data due to error)</span>
-              )}
-            </>
+          {isDataStale && (
+            <span className="text-destructive font-medium ml-2">(Stale data)</span>
           )}
         </CardDescription>
       </CardHeader>

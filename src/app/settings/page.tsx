@@ -10,6 +10,7 @@
  * - Renders the `SettingsForm` component for UI settings management using localStorage.
  * - Passes fetched templates down as props to `ManageTemplatesClient`.
  * - Includes basic error handling display for the initial template fetch.
+ * - Added standard page spacing and heading style.
  *
  * @dependencies
  * - React: For component structure.
@@ -30,7 +31,11 @@ import type { TradeTemplate } from '@/types';
 import ManageTemplatesClient from './_components/ManageTemplatesClient';
 // Import the actual client component for managing UI settings
 import SettingsForm from './_components/SettingsForm';
+import { Metadata } from 'next';
 
+export const metadata: Metadata = {
+  title: "Settings - Allora Hyperliquid Assistant",
+};
 
 /**
  * Renders the settings page.
@@ -51,8 +56,10 @@ export default async function SettingsPage(): Promise<JSX.Element> {
   console.log("Templates:", initialTemplates ? "OK" : `Error: ${initialTemplatesError}`);
 
   return (
-    <div className="space-y-6">
-      <h2 className="text-2xl font-semibold">Settings</h2>
+    // Added standard vertical spacing and centering
+    <div className="container mx-auto mt-16 space-y-8">
+      {/* Added heading style consistency */}
+      <h2 className="text-2xl font-semibold tracking-tight">Settings</h2>
 
       {/* Section for managing UI Preferences (e.g., refresh intervals, alerts) */}
       <SettingsForm />

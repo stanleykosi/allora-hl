@@ -14,6 +14,8 @@
  * - Integrates with the master trade execution switch from settings.
  * - Enables a "Review Trade" button when inputs are valid and estimates are available.
  * - Opens the `ConfirmationModal` when "Review Trade" is clicked.
+ * - Includes API status indicator for trade readiness.
+ * - Improved layout and styling for clarity and responsiveness.
  *
  * @dependencies
  * - react: For component structure, state (`useState`, `useEffect`), and hooks.
@@ -28,6 +30,7 @@
  * - @/lib/trading-calcs: For calculating estimated margin and liquidation price, suggesting direction.
  * - @/components/ui/*: Shadcn UI components (Card, Button, Input, Label, Select, Badge, Tooltip).
  * - @/components/ui/ConfirmationModal: The modal component for final trade confirmation.
+ * - @/components/ui/ApiStatusIndicator: Component to show API configuration status.
  * - lucide-react: For icons (Info).
  *
  * @notes
@@ -35,6 +38,7 @@
  * - Margin and liquidation price calculations are simplified estimates.
  * - Assumes BTC is the target asset (using BTC_SYMBOL_UI and BTC_ASSET_INDEX).
  * - Error handling for template/price fetching is included.
+ * - Added `ApiStatusIndicator` to show if trading API is configured.
  */
 "use client";
 
@@ -76,7 +80,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Info } from "lucide-react";
+import { Info, Target, CalendarClock } from "lucide-react";
 import ErrorDisplay from "@/components/ui/ErrorDisplay";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
 import {
@@ -134,7 +138,7 @@ const TradePanel: React.FC<TradePanelProps> = ({ selectedPrediction }) => {
   const currentPrice = useMemo(() => {
     const price = priceData?.price ? parseFloat(priceData.price) : null;
     // If we get a valid price, update our lastValidPrice
-    if (price !== null) {
+    if (price !== null && !isNaN(price)) {
       setLastValidPrice(price);
       return price;
     }
@@ -197,31 +201,28 @@ const TradePanel: React.FC<TradePanelProps> = ({ selectedPrediction }) => {
   useEffect(() => {
     const sizeNum = parseFloat(tradeSize);
     const leverageNum = parseFloat(leverage);
+    const priceToUse = currentPrice ?? lastValidPrice; // Use current or fallback to last valid
 
-    if (currentPrice && sizeNum > 0 && leverageNum > 0 && direction) {
-      const margin = calculateEstimatedMargin(currentPrice, sizeNum, leverageNum);
-      const liqPrice = calculateEstimatedLiquidationPrice(currentPrice, leverageNum, direction);
+    if (priceToUse && sizeNum > 0 && leverageNum > 0 && direction) {
+      const margin = calculateEstimatedMargin(priceToUse, sizeNum, leverageNum);
+      const liqPrice = calculateEstimatedLiquidationPrice(priceToUse, leverageNum, direction);
       setEstimatedMargin(margin);
       setEstimatedLiqPrice(liqPrice);
-    } else if (currentPrice === null && lastValidPrice && sizeNum > 0 && leverageNum > 0 && direction) {
-      // If current price is temporarily unavailable, use last valid price for calculations
-      const margin = calculateEstimatedMargin(lastValidPrice, sizeNum, leverageNum);
-      const liqPrice = calculateEstimatedLiquidationPrice(lastValidPrice, leverageNum, direction);
-      setEstimatedMargin(margin);
-      setEstimatedLiqPrice(liqPrice);
-    } else if (!sizeNum || !leverageNum || !direction) {
-      // Only reset estimates if core inputs are invalid
+    } else {
+      // Reset estimates if core inputs are invalid or price is unavailable
       setEstimatedMargin(null);
       setEstimatedLiqPrice(null);
     }
   }, [tradeSize, leverage, currentPrice, lastValidPrice, direction]);
 
+
   // Handler for template selection
   const handleTemplateChange = (templateId: string) => {
     setSelectedTemplateId(templateId);
     if (templateId === "none") {
-      setTradeSize("");
-      setLeverage("10"); // Reset to default leverage
+      // Optionally reset fields, or keep them if user might want to modify template values
+      // setTradeSize("");
+      // setLeverage("10"); // Reset to default leverage
       return;
     }
     const selected = templates.find((t) => t.id === templateId);
@@ -231,25 +232,24 @@ const TradePanel: React.FC<TradePanelProps> = ({ selectedPrediction }) => {
     }
   };
 
-  // Validation for enabling the review button - add debug logging
+  // Validation for enabling the review button
   const isReviewEnabled = useMemo(() => {
     const sizeNum = parseFloat(tradeSize);
     const leverageNum = parseFloat(leverage);
+    const priceAvailable = currentPrice !== null || lastValidPrice !== null;
 
-    // For debugging purposes - log which condition is failing
     const conditions = {
       selectedPrediction: selectedPrediction !== null,
       sizeValid: sizeNum > 0,
       leverageValid: leverageNum > 0,
-      notLoadingPrice: !isLoadingPrice || lastValidPrice !== null,
-      hasPriceData: currentPrice !== null,
+      priceAvailable,
       hasDirection: direction !== null,
       hasEstimatedMargin: estimatedMargin !== null,
       hasEstimatedLiqPrice: estimatedLiqPrice !== null,
       tradeSwitchEnabled: settings.tradeSwitchEnabled
     };
 
-    // Only log if button is disabled to help troubleshoot
+    // Log if disabled for easier debugging
     if (!Object.values(conditions).every(Boolean)) {
       console.debug("Review button disabled because:",
         Object.entries(conditions)
@@ -258,24 +258,13 @@ const TradePanel: React.FC<TradePanelProps> = ({ selectedPrediction }) => {
       );
     }
 
-    return (
-      selectedPrediction !== null &&
-      sizeNum > 0 &&
-      leverageNum > 0 &&
-      (!isLoadingPrice || lastValidPrice !== null) && // Allow button to stay enabled during price refresh
-      currentPrice !== null &&
-      direction !== null &&
-      estimatedMargin !== null &&
-      estimatedLiqPrice !== null &&
-      settings.tradeSwitchEnabled // Master switch must be ON
-    );
+    return Object.values(conditions).every(Boolean);
   }, [
     selectedPrediction,
     tradeSize,
     leverage,
-    isLoadingPrice,
-    lastValidPrice,
     currentPrice,
+    lastValidPrice,
     direction,
     estimatedMargin,
     estimatedLiqPrice,
@@ -287,225 +276,201 @@ const TradePanel: React.FC<TradePanelProps> = ({ selectedPrediction }) => {
 
     const sizeNum = parseFloat(tradeSize);
     let leverageNum = parseFloat(leverage);
+    const priceToUse = currentPrice ?? lastValidPrice; // Use best available price
 
-    // Check if leverage exceeds Hyperliquid's limit
+    // This should not happen if isReviewEnabled is true, but double-check
+    if (!selectedPrediction || !priceToUse || !direction || estimatedMargin === null || estimatedLiqPrice === null) {
+      toast({ title: "Error", description: "Missing required trade details. Please ensure a prediction is selected and inputs are valid.", variant: "destructive" });
+      console.error("handleReviewTrade called with invalid state despite isReviewEnabled being true. State:", { selectedPrediction, priceToUse, direction, estimatedMargin, estimatedLiqPrice });
+      return;
+    }
+
+
+    // Cap leverage if necessary
     if (leverageNum > 40) {
-      // Cap leverage at 40x
       leverageNum = 40;
-      setLeverage("40");
-
-      // Show warning toast
+      setLeverage("40"); // Update state for consistency
       toast({
         title: "Leverage Limit Applied",
-        description: "Hyperliquid only supports up to 40x leverage for BTC trades. Your leverage has been capped at 40x.",
+        description: "Hyperliquid supports up to 40x leverage for BTC. Leverage capped at 40x.",
         variant: "destructive",
         duration: 5000,
       });
     }
 
-    // Basic check to ensure required values are present
-    if (!selectedPrediction || !currentPrice || !direction || estimatedMargin === null || estimatedLiqPrice === null) {
-      toast({ title: "Error", description: "Missing required trade details.", variant: "destructive" });
-      return;
-    }
-
-    // ADDED: Get suggested direction to check if user overrode it
-    const suggestedDir = suggestTradeDirection(selectedPrediction.price, currentPrice);
-    const isDirectionOverridden = suggestedDir !== direction;
-
-    // Calculate a wide price limit for the market order (e.g., +/- 10%)
-    // This ensures the IOC order executes as a market order
-    const slippagePercent = 0.10; // 10%
-
-    // Calculate raw price limit with slippage
-    let rawPriceLimit = direction === 'long'
-      ? currentPrice * (1 + slippagePercent) // Higher price for buys
-      : currentPrice * (1 - slippagePercent); // Lower price for sells
-
-    // CRITICAL FIX: Use enhanced method to ensure exact compliance with Hyperliquid tick size
-    const TICK_SIZE = 0.5;
-
-    // First round to the nearest tick size
-    rawPriceLimit = Math.round(rawPriceLimit / TICK_SIZE) * TICK_SIZE;
-
-    // Force exactly one decimal place - critical for Hyperliquid
-    rawPriceLimit = Math.round(rawPriceLimit * 10) / 10;
-
-    // Ensure we're at a valid tick by checking remainder
-    if ((rawPriceLimit * 10) % 5 !== 0) {
-      console.error("Price not at valid tick increment after initial adjustment:", rawPriceLimit);
-      // Force correction to nearest valid tick
-      rawPriceLimit = Math.round(rawPriceLimit / TICK_SIZE) * TICK_SIZE;
-      // Force one decimal again
-      rawPriceLimit = Math.round(rawPriceLimit * 10) / 10;
-    }
-
-    // Convert to string with exactly one decimal place and back to number for final validation
-    const priceString = rawPriceLimit.toFixed(1);
-    rawPriceLimit = parseFloat(priceString);
-
-    // Final validation
-    const tickCheck = (rawPriceLimit * 10) % 5;
-    if (tickCheck !== 0) {
-      console.error(`CRITICAL ERROR: Price ${rawPriceLimit} is not at a valid tick increment. Remainder: ${tickCheck}`);
+    // Check minimum order value ($10)
+    const orderValue = sizeNum * priceToUse;
+    if (orderValue < 10) {
       toast({
-        title: "Price Error",
-        description: "Unable to generate a valid price that meets Hyperliquid's tick size requirements.",
+        title: "Order Value Too Small",
+        description: `Minimum order value is $10. Current estimated value: ${formatCurrency(orderValue)}. Please increase size.`,
         variant: "destructive",
       });
       return;
     }
 
-    // Log the tick size adjustment details
-    console.log("Price limit adjusted to tick size:", {
-      direction,
-      currentPrice,
-      slippagePercent,
-      rawPriceLimit,
-      divisibleByTickSize: (rawPriceLimit * 10) % 5 === 0,
-      hasOneDecimalPlace: rawPriceLimit.toFixed(1) === rawPriceLimit.toString()
-    });
+    const suggestedDir = suggestTradeDirection(selectedPrediction.price, priceToUse);
+    const isDirectionOverridden = suggestedDir !== direction;
 
-    // Format for display - use number formatting with precision and add dollar sign explicitly
-    const formattedPriceLimit = '$' + rawPriceLimit.toFixed(1).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    // Calculate a wide price limit for the market order (e.g., +/- 10%)
+    const slippagePercent = 0.10; // 10%
+    let rawPriceLimit = direction === 'long'
+      ? priceToUse * (1 + slippagePercent) // Higher price for buys
+      : priceToUse * (1 - slippagePercent); // Lower price for sells
 
-    console.log("Calculated price limit:", {
-      currentPrice,
-      direction,
-      slippagePercent: slippagePercent * 100 + "%",
-      rawPriceLimit,
-      formattedPriceLimit
-    });
+    const TICK_SIZE = 0.5; // Assuming BTC tick size
+    rawPriceLimit = Math.round(rawPriceLimit / TICK_SIZE) * TICK_SIZE;
+    rawPriceLimit = Math.round(rawPriceLimit * 10) / 10; // Ensure one decimal
+
+    // Final validation & correction
+    if ((rawPriceLimit * 10) % 5 !== 0) {
+      const correctedPrice = Math.round(rawPriceLimit / TICK_SIZE) * TICK_SIZE;
+      rawPriceLimit = Math.round(correctedPrice * 10) / 10;
+      console.warn(`Price limit emergency correction applied: ${rawPriceLimit}`);
+    }
+
+    const priceString = rawPriceLimit.toFixed(1);
+    const finalPriceLimitValue = parseFloat(priceString); // Use the corrected, formatted value
+    const formattedPriceLimit = '$' + finalPriceLimitValue.toFixed(1).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 
     const details: TradeConfirmationDetails = {
       symbol: BTC_SYMBOL_UI,
-      currentMarketPrice: currentPrice,
+      currentMarketPrice: priceToUse,
       direction,
       size: sizeNum,
-      leverage: leverageNum, // Leverage used for estimation
+      leverage: leverageNum,
       estimatedMargin,
       estimatedLiqPrice,
-      priceLimit: formattedPriceLimit, // Formatted for display
-      priceLimitValue: rawPriceLimit,  // Raw numeric value for calculations
-      isDirectionOverridden: isDirectionOverridden, // Added flag to indicate direction override
-      suggestedDirection: suggestedDir || undefined  // Added suggested direction for reference
+      priceLimit: formattedPriceLimit,
+      priceLimitValue: finalPriceLimitValue,
+      isDirectionOverridden: isDirectionOverridden,
+      suggestedDirection: suggestedDir || undefined
     };
 
     console.log("Opening confirmation modal with details:", details);
-    setModalDetails(details); // Set details for the modal
-    setIsModalOpen(true); // Open the modal
+    setModalDetails(details);
+    setIsModalOpen(true);
   };
 
   return (
     <>
-      <Card>
+      <Card className="h-auto"> {/* Change from flex flex-col h-full to h-auto */}
         <CardHeader>
           <CardTitle>Trade Panel</CardTitle>
           <CardDescription>
             Configure and execute trades based on selected predictions.
           </CardDescription>
-          <div className="flex flex-wrap gap-2 mt-2">
+          {/* Status Badges */}
+          <div className="flex flex-wrap gap-2 pt-2">
             {!settings.tradeSwitchEnabled && (
-              <Badge variant="destructive">Trading Disabled (Enable in Settings)</Badge>
+              <Badge variant="destructive" className="text-xs">Trading Disabled (Enable in Settings)</Badge>
             )}
             <ApiStatusIndicator />
           </div>
         </CardHeader>
-        <CardContent className="space-y-4">
+
+        {/* Content Area */}
+        <CardContent className="space-y-4"> {/* Remove flex-grow class */}
           {/* Selected Prediction Display */}
-          <div className="p-3 border rounded-md bg-muted/50 min-h-[70px]"> {/* Added min-height */}
-            <Label className="text-sm font-medium text-muted-foreground">Selected Prediction</Label>
+          <div className="p-3 rounded-xl ring-[3px] ring-inset ring-border bg-background min-h-[80px] flex flex-col justify-center overflow-hidden">
+            <div className="flex justify-between items-center mb-2">
+              <div className="flex items-center gap-1">
+                <Target size={14} className="text-primary flex-shrink-0" />
+                <Badge variant="secondary" className="text-xs font-medium">
+                  {selectedPrediction ? `${selectedPrediction.timeframe} Target` : 'No Prediction'}
+                </Badge>
+              </div>
+              {selectedPrediction && (
+                <span className="text-xs text-muted-foreground flex items-center gap-1">
+                  <CalendarClock size={12} />
+                  {formatDateTime(selectedPrediction.timestamp, {
+                    month: 'short',
+                    day: 'numeric',
+                    year: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit',
+                    hour12: false
+                  })}
+                </span>
+              )}
+            </div>
             {selectedPrediction ? (
-              <div className="mt-1 text-sm">
-                <p>
-                  <span className="font-semibold">Target:</span>{" "}
-                  {formatCurrency(selectedPrediction.price)}{" "}
-                  <Badge variant="outline">{selectedPrediction.timeframe}</Badge>
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  Received: {formatDateTime(selectedPrediction.timestamp)}
-                </p>
+              <div className="text-sm">
+                <span className="font-semibold text-lg text-foreground">
+                  {formatCurrency(selectedPrediction.price, {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  })}
+                </span>
               </div>
             ) : (
-              <p className="text-sm text-muted-foreground italic mt-1">
-                No prediction selected. Click one from the feed.
+              <p className="text-sm text-muted-foreground italic">
+                Select a prediction from the feed.
               </p>
             )}
           </div>
 
           {/* Current Price Display */}
-          <div className="min-h-[20px]"> {/* Added min-height */}
+          <div className="min-h-[24px] flex items-center"> {/* Ensure consistent height */}
             {isLoadingPrice && !currentPrice && <LoadingSpinner size={16} />}
-            {priceError && <ErrorDisplay error={`Price Error: ${priceError}`} className="text-xs p-1" />}
+            {priceError && !isLoadingPrice && <ErrorDisplay error={`Price Error: ${priceError}`} className="text-xs p-1 text-destructive" />}
             {currentPrice !== null && (
-              <p className="text-sm">
-                <span className="font-medium">Current {BTC_SYMBOL_UI.split('-')[0]} Price:</span>{" "}
+              <p className="text-sm text-muted-foreground">
+                <span className="font-medium text-foreground">Market Price ({BTC_SYMBOL_UI.split('-')[0]}):</span>{' '}
                 {formatCurrency(currentPrice)}
+                {priceError && <span className="text-destructive ml-1">(Stale)</span>}
               </p>
             )}
-          </div>
-
-
-          {/* Suggested Direction */}
-          <div className="min-h-[20px]"> {/* Added min-height */}
-            {direction && (
-              <div className="space-y-2">
-                <p className="text-sm">
-                  <span className="font-medium">Suggested Direction:</span>{" "}
-                  <Badge variant={direction === 'long' ? 'default' : 'destructive'} className={direction === 'long' ? 'bg-green-600 hover:bg-green-700' : ''}>
-                    {direction.toUpperCase()}
-                  </Badge>
-                </p>
-
-                {/* Added direction override buttons */}
-                <div className="flex space-x-2">
-                  <Button
-                    size="sm"
-                    variant={direction === 'long' ? 'default' : 'outline'}
-                    className={direction === 'long' ? 'bg-green-600 hover:bg-green-700' : ''}
-                    onClick={() => setDirection('long')}
-                  >
-                    LONG
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant={direction === 'short' ? 'destructive' : 'outline'}
-                    onClick={() => setDirection('short')}
-                  >
-                    SHORT
-                  </Button>
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Info className="h-4 w-4 text-muted-foreground cursor-help mt-2" />
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p className="text-xs max-w-xs">
-                          You can manually override the suggested direction based on your own analysis.
-                        </p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                </div>
-              </div>
+            {!isLoadingPrice && currentPrice === null && !priceError && (
+              <p className="text-sm text-muted-foreground">Fetching price...</p>
             )}
           </div>
 
           {/* Trade Configuration Form */}
           <div className="space-y-4 pt-4 border-t">
+            {/* Suggested Direction & Override */}
+            <div className="min-h-[40px]"> {/* Ensure consistent height */}
+              {selectedPrediction && currentPrice && direction && (
+                <div className="space-y-2">
+                  <p className="text-sm">
+                    <span className="font-medium">Direction:</span>{" "}
+                    <Badge variant={direction === 'long' ? 'default' : 'destructive'} className={`${direction === 'long' ? 'bg-green-600 hover:bg-green-700' : ''} text-white`}>
+                      {direction.toUpperCase()}
+                    </Badge>
+                    {suggestTradeDirection(selectedPrediction.price, currentPrice) !== direction &&
+                      <span className="text-xs text-orange-600 ml-2">(Overridden)</span>
+                    }
+                  </p>
+                  {/* Add direction override buttons */}
+                  <div className="flex items-center space-x-2">
+                    <Label className="text-xs text-muted-foreground">Override:</Label>
+                    <Button variant={direction === 'long' ? 'default' : 'outline'} className={`${direction === 'long' ? 'bg-green-600 hover:bg-green-700' : ''} h-6 px-2 text-xs`} onClick={() => setDirection('long')}>LONG</Button>
+                    <Button variant={direction === 'short' ? 'destructive' : 'outline'} className="h-6 px-2 text-xs" onClick={() => setDirection('short')}>SHORT</Button>
+                    <TooltipProvider>
+                      <Tooltip delayDuration={100}>
+                        <TooltipTrigger asChild><Info className="h-4 w-4 text-muted-foreground cursor-help" /></TooltipTrigger>
+                        <TooltipContent><p className="text-xs max-w-xs">Manually select trade direction.</p></TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  </div>
+                </div>
+              )}
+            </div>
+
             {/* Template Selector */}
             <div className="space-y-1">
-              <Label htmlFor="template">Trade Template (Optional)</Label>
+              <Label htmlFor="template">Trade Template <span className="text-muted-foreground">(Optional)</span></Label>
               <Select
                 value={selectedTemplateId}
                 onValueChange={handleTemplateChange}
-                disabled={isLoadingTemplates || templates.length === 0 || !selectedPrediction} // Disable if no prediction
+                disabled={isLoadingTemplates || !selectedPrediction} // Disable if no prediction
               >
-                <SelectTrigger id="template">
-                  <SelectValue placeholder={isLoadingTemplates ? "Loading..." : "Select a template"} />
+                <SelectTrigger id="template" disabled={isLoadingTemplates || templates.length === 0 || !selectedPrediction}>
+                  <SelectValue placeholder={isLoadingTemplates ? "Loading..." : (templates.length === 0 ? "No templates found" : "Select template")} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="none">None</SelectItem>
+                  <SelectItem value="none">None (Manual Input)</SelectItem>
                   {templates.map((template) => (
                     <SelectItem key={template.id} value={template.id}>
                       {template.name} (Size: {formatNumber(template.size, 4)}, Lev: {formatNumber(template.leverage, 1)}x)
@@ -513,7 +478,7 @@ const TradePanel: React.FC<TradePanelProps> = ({ selectedPrediction }) => {
                   ))}
                 </SelectContent>
               </Select>
-              {templateError && <ErrorDisplay error={`Template Error: ${templateError}`} className="text-xs p-1 mt-1" />}
+              {templateError && <ErrorDisplay error={`Template Error: ${templateError}`} className="text-xs p-1 mt-1 text-destructive" />}
             </div>
 
             {/* Trade Size Input */}
@@ -522,22 +487,28 @@ const TradePanel: React.FC<TradePanelProps> = ({ selectedPrediction }) => {
               <Input
                 id="size"
                 type="number"
-                placeholder="e.g., 0.1 (min $10 value)"
+                placeholder="e.g., 0.1"
                 value={tradeSize}
                 onChange={(e) => setTradeSize(e.target.value)}
-                min="0.00011"
-                step="0.01"
-                disabled={!selectedPrediction || !currentPrice} // Disable if no prediction or price
+                min="0.00011" // Rough minimum based on $10 value
+                step="any" // Allow any decimal input initially
+                disabled={!selectedPrediction}
+                className={parseFloat(tradeSize) <= 0 && tradeSize !== '' ? "border-destructive" : ""}
               />
-              <p className="text-xs text-muted-foreground">Minimum order value: $10 (~0.0001 BTC at current prices)</p>
+              {/* Display approximate USD value */}
+              {currentPrice && parseFloat(tradeSize) > 0 && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  Approx. Value: {formatCurrency(currentPrice * parseFloat(tradeSize))} (Min $10)
+                </p>
+              )}
+              {!(currentPrice && parseFloat(tradeSize) > 0) && (
+                <p className="text-xs text-muted-foreground mt-1">Minimum order value: $10</p>
+              )}
             </div>
 
             {/* Leverage Input */}
             <div className="space-y-1">
-              <Label htmlFor="leverage">
-                Leverage (for estimation)
-                <span className="ml-1 text-xs text-muted-foreground">(Max: 40x)</span>
-              </Label>
+              <Label htmlFor="leverage">Leverage <span className="text-muted-foreground">(for estimation)</span></Label>
               <div className="flex items-center space-x-2">
                 <Input
                   id="leverage"
@@ -547,55 +518,33 @@ const TradePanel: React.FC<TradePanelProps> = ({ selectedPrediction }) => {
                   onChange={(e) => {
                     const value = e.target.value;
                     const numValue = parseFloat(value);
-
-                    // Check if value exceeds limit when it's a valid number
-                    if (!isNaN(numValue) && numValue > 40) {
-                      // Auto-cap at 40x
-                      setLeverage("40");
-
-                      // Show warning toast
-                      toast({
-                        title: "Leverage Limit Exceeded",
-                        description: "Hyperliquid only supports up to 40x leverage for BTC trades. Your leverage has been capped at 40x.",
-                        variant: "destructive",
-                        duration: 5000,
-                      });
-                    } else {
-                      setLeverage(value);
-                    }
+                    if (!isNaN(numValue) && numValue > 40) setLeverage("40");
+                    else if (!isNaN(numValue) && numValue < 1) setLeverage("1");
+                    else setLeverage(value);
                   }}
-                  min="1" // Minimum leverage is typically 1
-                  max="40" // Maximum leverage for Hyperliquid BTC
+                  min="1"
+                  max="40"
                   step="any"
-                  disabled={!selectedPrediction || !currentPrice} // Disable if no prediction or price
-                  className={parseFloat(leverage) > 40 ? "border-destructive" : ""}
+                  disabled={!selectedPrediction}
+                  className={(parseFloat(leverage) <= 0 || parseFloat(leverage) > 40) && leverage !== '' ? "border-destructive" : ""}
                 />
                 <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Info className="h-4 w-4 text-muted-foreground cursor-help" />
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p className="text-xs max-w-xs">
-                        Leverage is set per-asset on Hyperliquid with a maximum of 40x for BTC.
-                        This value is used for margin and liquidation price estimation.
-                      </p>
-                    </TooltipContent>
+                  <Tooltip delayDuration={100}>
+                    <TooltipTrigger asChild><Info className="h-4 w-4 text-muted-foreground cursor-help flex-shrink-0" /></TooltipTrigger>
+                    <TooltipContent><p className="text-xs max-w-xs">Hyperliquid sets leverage per-asset (Max 40x for BTC). This value is used for estimates.</p></TooltipContent>
                   </Tooltip>
                 </TooltipProvider>
               </div>
-              {parseFloat(leverage) > 40 && (
-                <p className="text-xs text-destructive mt-1">
-                  Hyperliquid limits BTC leverage to 40x maximum.
-                </p>
+              {(parseFloat(leverage) <= 0 || parseFloat(leverage) > 40) && leverage !== '' && (
+                <p className="text-xs text-destructive mt-1">Leverage must be between 1 and 40.</p>
               )}
             </div>
 
             {/* Estimates Display */}
-            <div className="min-h-[80px]"> {/* Added min-height */}
+            <div className="min-h-[70px] flex flex-col justify-center"> {/* Reduced from 80px to 70px */}
               {(estimatedMargin !== null || estimatedLiqPrice !== null) && (
-                <div className="space-y-1 text-sm border-t pt-4 text-muted-foreground">
-                  <h4 className="font-medium text-foreground mb-1">Estimates:</h4>
+                <div className="space-y-1 text-sm border-t pt-3 text-muted-foreground">
+                  <h4 className="font-medium text-foreground text-xs uppercase tracking-wider mb-1">Estimates:</h4>
                   <div className="flex justify-between">
                     <span>Required Margin:</span>
                     <span className="font-medium text-foreground">{estimatedMargin !== null ? formatCurrency(estimatedMargin) : "N/A"}</span>
@@ -604,13 +553,18 @@ const TradePanel: React.FC<TradePanelProps> = ({ selectedPrediction }) => {
                     <span>Liquidation Price:</span>
                     <span className="font-medium text-foreground">{estimatedLiqPrice !== null ? formatCurrency(estimatedLiqPrice) : "N/A"}</span>
                   </div>
-                  <p className="text-xs italic text-center mt-1">Estimates are approximate and do not include fees or funding.</p>
+                  <p className="text-xs italic text-center mt-1">Approximate values, excluding fees/funding.</p>
                 </div>
+              )}
+              {!estimatedMargin && !estimatedLiqPrice && parseFloat(tradeSize) > 0 && parseFloat(leverage) > 0 && direction && currentPrice !== null && (
+                <p className="text-xs text-muted-foreground text-center pt-4">Calculating estimates...</p>
               )}
             </div>
           </div>
         </CardContent>
-        <CardFooter>
+
+        {/* Footer with Action Button */}
+        <CardFooter className="border-t pt-4">
           <Button
             className="w-full"
             onClick={handleReviewTrade}

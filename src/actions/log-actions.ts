@@ -24,41 +24,53 @@ import { Prisma } from "@prisma/client";
 export async function logTradeAction(
   data: Omit<TradeLogEntry, "id" | "timestamp">,
 ): Promise<ActionState<TradeLogEntry>> {
-  console.log("Executing logTradeAction with data:", data);
+  const startTime = Date.now();
+  console.log("[TradeLog] Starting to log trade with data:", data);
+
   try {
-    // Basic validation (more specific validation might happen before calling this action)
+    // Basic validation
     if (
       !data.symbol ||
       !data.direction ||
       typeof data.size !== "number" ||
-      typeof data.entryPrice !== "number" || // entryPrice might be 0 or NaN if trade failed before execution attempt
+      typeof data.entryPrice !== "number" ||
       !data.status
     ) {
       throw new Error("Missing required fields for trade log entry.");
     }
 
-    // Sanitize optional fields to ensure they are null if undefined or empty string
+    // Sanitize optional fields
     const entryData = {
-        ...data,
-        hyperliquidOrderId: data.hyperliquidOrderId || null,
-        errorMessage: data.errorMessage || null,
+      ...data,
+      hyperliquidOrderId: data.hyperliquidOrderId || null,
+      errorMessage: data.errorMessage || null,
     };
-
 
     const newLogEntry = await prisma.tradeLog.create({
       data: entryData,
     });
 
+    const logTime = Date.now() - startTime;
     console.log(
-      `Successfully logged trade entry ID: ${newLogEntry.id} with status: ${newLogEntry.status}`,
+      `[TradeLog] Successfully created entry in ${logTime}ms:`,
+      {
+        id: newLogEntry.id,
+        timestamp: new Date(newLogEntry.timestamp).toISOString(),
+        symbol: newLogEntry.symbol,
+        direction: newLogEntry.direction,
+        status: newLogEntry.status,
+      }
     );
+
     return {
       isSuccess: true,
       message: `Trade logged successfully with status: ${newLogEntry.status}.`,
       data: newLogEntry,
     };
   } catch (error: unknown) {
-    console.error("❌ Error logging trade entry:", error);
+    const logTime = Date.now() - startTime;
+    console.error(`[TradeLog] Failed to create entry after ${logTime}ms:`, error);
+
     let errorMessage = "An unknown error occurred while logging the trade.";
     let detailedError = errorMessage;
 
@@ -67,11 +79,10 @@ export async function logTradeAction(
       errorMessage = "Database error occurred while logging trade.";
     } else if (error instanceof Error) {
       detailedError = error.message;
-      // Keep a more generic user message unless it's our validation error
       if (!error.message.includes("Missing required fields")) {
-         errorMessage = "Failed to log trade entry due to an error.";
+        errorMessage = "Failed to log trade entry due to an error.";
       } else {
-         errorMessage = error.message; // Use the validation error message directly
+        errorMessage = error.message;
       }
     }
 
@@ -87,19 +98,25 @@ export async function logTradeAction(
  * Fetches recent Trade Log entries from the database.
  *
  * @param {number} [limit=50] - The maximum number of log entries to fetch. Defaults to 50.
+ * @param {number} [timestamp] - Optional timestamp to help invalidate cache between requests.
  * @returns {Promise<ActionState<TradeLogEntry[]>>} An ActionState object containing an array of log entries on success, or an error message on failure.
  */
 export async function fetchTradeLogAction(
   limit: number = 50,
+  timestamp?: number, // Optional timestamp to force fresh fetch
 ): Promise<ActionState<TradeLogEntry[]>> {
-  console.log(`Executing fetchTradeLogAction with limit: ${limit}`);
+  const startTime = Date.now();
+  console.log(`[TradeLog] Starting fetch at ${new Date().toISOString()}`);
+
   try {
     // Validate limit
     if (typeof limit !== "number" || limit <= 0 || !Number.isInteger(limit)) {
-        console.warn(`Invalid limit provided: ${limit}. Using default limit of 50.`);
-        limit = 50;
+      console.warn(`Invalid limit provided: ${limit}. Using default limit of 50.`);
+      limit = 50;
     }
 
+    // Log server time to help debug timezone issues
+    console.log(`[TradeLog] Server time before DB query: ${new Date().toISOString()}`);
 
     const logEntries = await prisma.tradeLog.findMany({
       take: limit,
@@ -108,14 +125,26 @@ export async function fetchTradeLogAction(
       },
     });
 
-    console.log(`Successfully fetched ${logEntries.length} trade log entries.`);
+    // Log timing and results
+    const fetchTime = Date.now() - startTime;
+    console.log(`[TradeLog] Fetch completed in ${fetchTime}ms`);
+
+    if (logEntries.length > 0) {
+      console.log(`[TradeLog] Found ${logEntries.length} entries`);
+      console.log(`[TradeLog] Newest entry: ${new Date(logEntries[0].timestamp).toISOString()}`);
+      console.log(`[TradeLog] Oldest entry: ${new Date(logEntries[logEntries.length - 1].timestamp).toISOString()}`);
+    } else {
+      console.log(`[TradeLog] No entries found`);
+    }
+
     return {
       isSuccess: true,
       message: "Successfully fetched trade log entries.",
       data: logEntries,
     };
   } catch (error: unknown) {
-    console.error("❌ Error fetching trade log entries:", error);
+    const fetchTime = Date.now() - startTime;
+    console.error(`[TradeLog] Fetch failed after ${fetchTime}ms:`, error);
     const errorMessage =
       error instanceof Error ? error.message : "An unknown error occurred";
     return {

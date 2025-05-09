@@ -8,6 +8,9 @@
  * - Displays formatted account balance/equity/margin.
  * - Shows loading state using LoadingSpinner.
  * - Shows error state using ErrorDisplay.
+ * - Uses responsive grid for better layout.
+ * - Improved styling for clarity and visual hierarchy.
+ * - Includes tooltips for potentially confusing terms.
  *
  * @dependencies
  * - react: For component structure.
@@ -16,6 +19,8 @@
  * - @/components/ui/card: Shadcn Card components for layout.
  * - @/components/ui/LoadingSpinner: Component to display loading state.
  * - @/components/ui/ErrorDisplay: Component to display error messages.
+ * - @/components/ui/tooltip: Shadcn Tooltip components.
+ * - lucide-react: For icons (InfoIcon).
  *
  * @notes
  * - This component is purely presentational. Data fetching and state management
@@ -70,7 +75,7 @@ const AccountSummary: React.FC<AccountSummaryProps> = ({
   // Safely extract values with default fallbacks
   const getAccountValue = () => {
     try {
-      return currentAccountInfo?.marginSummary?.accountValue || "0";
+      return currentAccountInfo?.marginSummary?.accountValue ?? "0";
     } catch (e) {
       console.error("Error getting account value:", e);
       return "0";
@@ -79,14 +84,20 @@ const AccountSummary: React.FC<AccountSummaryProps> = ({
 
   const getWithdrawable = () => {
     try {
-      // Check if the withdrawable field exists, and if not, try to use marginSummary.withdrawable
+      // Check if the withdrawable field exists directly on account info
       if (currentAccountInfo?.withdrawable !== undefined) {
-        return currentAccountInfo.withdrawable || "0";
-      } else if (currentAccountInfo?.marginSummary?.withdrawable !== undefined) {
-        return currentAccountInfo.marginSummary.withdrawable || "0";
+        return currentAccountInfo.withdrawable;
+      } else if (currentAccountInfo?.marginSummary) {
+        // Calculate withdrawable as accountValue minus totalMarginUsed
+        const accountValue = currentAccountInfo.marginSummary.accountValue || "0";
+        const marginUsed = currentAccountInfo.marginSummary.totalMarginUsed || "0";
+
+        // Simple calculation of available margin (this may need to be refined based on exact Hyperliquid logic)
+        const available = (parseFloat(accountValue) - parseFloat(marginUsed)).toString();
+        return available;
       } else {
-        console.warn("Available margin field not found in API response");
-        return "0";
+        console.warn("Available margin field (withdrawable) not found in API response", currentAccountInfo);
+        return "0"; // Fallback if neither field is found
       }
     } catch (e) {
       console.error("Error getting withdrawable:", e);
@@ -94,9 +105,10 @@ const AccountSummary: React.FC<AccountSummaryProps> = ({
     }
   };
 
+
   const getMarginUsed = () => {
     try {
-      return currentAccountInfo?.marginSummary?.totalMarginUsed || "0";
+      return currentAccountInfo?.marginSummary?.totalMarginUsed ?? "0";
     } catch (e) {
       console.error("Error getting margin used:", e);
       return "0";
@@ -105,53 +117,66 @@ const AccountSummary: React.FC<AccountSummaryProps> = ({
 
   const getPositionValue = () => {
     try {
-      return currentAccountInfo?.marginSummary?.totalNtlPos || "0";
+      // totalNtlPos seems most appropriate for total position value (notional)
+      return currentAccountInfo?.marginSummary?.totalNtlPos ?? "0";
     } catch (e) {
-      console.error("Error getting position value:", e);
+      console.error("Error getting position value (totalNtlPos):", e);
       return "0";
     }
   };
 
+  // Check if data is stale (e.g., older than 1 minute) due to error
+  const isDataStale = Boolean(
+    error &&
+    currentAccountInfo?.time &&
+    (new Date().getTime() - new Date(currentAccountInfo.time).getTime()) > 60000
+  );
+
   // Determine content based on loading, error, and data states
   const renderContent = () => {
-    // Always render a div with consistent structure
+    // Always render a div with consistent structure and minimum height
     return (
-      <div className="min-h-[120px]">
+      <div className="min-h-[80px] flex flex-col justify-center">
         {isLoading && !currentAccountInfo && (
-          <div className="flex justify-center items-center h-20">
+          <div className="flex justify-center items-center h-full">
             <LoadingSpinner />
           </div>
         )}
 
-        {error && !currentAccountInfo && (
-          <ErrorDisplay error={error} />
+        {error && !currentAccountInfo && ( // Show primary error only if no stale data
+          <div className="flex justify-center items-center h-full">
+            <ErrorDisplay error={error} />
+          </div>
         )}
 
         {!isLoading && !error && !currentAccountInfo && (
-          <p className="text-muted-foreground text-sm">No account data available.</p>
+          <p className="text-muted-foreground text-sm text-center">No account data available.</p>
         )}
 
         {currentAccountInfo && (
-          <div className="grid grid-cols-2 gap-4 text-sm">
+          <div className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
+            {/* Total Equity */}
             <div>
               <p className="text-muted-foreground">Total Equity</p>
               <p className="font-semibold text-lg">
                 {formatCurrency(getAccountValue())}
               </p>
             </div>
+
+            {/* Available Margin */}
             <div>
               <div className="flex items-center gap-1">
                 <p className="text-muted-foreground">Available Margin</p>
                 <TooltipProvider>
-                  <Tooltip>
+                  <Tooltip delayDuration={100}>
                     <TooltipTrigger asChild>
-                      <InfoIcon className="h-4 w-4 text-muted-foreground" />
+                      <InfoIcon className="h-4 w-4 text-muted-foreground cursor-help" />
                     </TooltipTrigger>
                     <TooltipContent className="max-w-[300px]">
                       <p>
-                        Available margin can be zero when all equity is being used to maintain open positions. 
-                        This is normal with leveraged positions. To free up margin, you can either 
-                        deposit more funds or reduce your position size.
+                        Margin available to open new positions or withdraw.
+                        It equals Equity minus Margin Used. Can be zero or negative
+                        if maintenance margin requirements are high for open positions.
                       </p>
                     </TooltipContent>
                   </Tooltip>
@@ -161,14 +186,46 @@ const AccountSummary: React.FC<AccountSummaryProps> = ({
                 {formatCurrency(getWithdrawable())}
               </p>
             </div>
+
+            {/* Margin Used */}
             <div>
-              <p className="text-muted-foreground">Margin Used</p>
+              <div className="flex items-center gap-1">
+                <p className="text-muted-foreground">Margin Used</p>
+                <TooltipProvider>
+                  <Tooltip delayDuration={100}>
+                    <TooltipTrigger asChild>
+                      <InfoIcon className="h-4 w-4 text-muted-foreground cursor-help" />
+                    </TooltipTrigger>
+                    <TooltipContent className="max-w-[300px]">
+                      <p>
+                        Total margin currently allocated to maintain your open positions (initial + maintenance).
+                      </p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </div>
               <p className="font-semibold">
                 {formatCurrency(getMarginUsed())}
               </p>
             </div>
+
+            {/* Total Position Value */}
             <div>
-              <p className="text-muted-foreground">Total Position Value</p>
+              <div className="flex items-center gap-1">
+                <p className="text-muted-foreground">Total Position Value</p>
+                <TooltipProvider>
+                  <Tooltip delayDuration={100}>
+                    <TooltipTrigger asChild>
+                      <InfoIcon className="h-4 w-4 text-muted-foreground cursor-help" />
+                    </TooltipTrigger>
+                    <TooltipContent className="max-w-[300px]">
+                      <p>
+                        The total notional value of all your open positions (Sum of |Size * Mark Price|).
+                      </p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </div>
               <p className="font-semibold">
                 {formatCurrency(getPositionValue())}
               </p>
@@ -181,25 +238,23 @@ const AccountSummary: React.FC<AccountSummaryProps> = ({
 
   return (
     <Card>
-      <CardHeader>
+      <CardHeader className="pb-2">
         <CardTitle>Account Summary</CardTitle>
         <CardDescription>
           Overview of your Hyperliquid account balance and margin.
-          {error && currentAccountInfo && (
-            <>
-              {currentAccountInfo.time && new Date().getTime() - new Date(currentAccountInfo.time).getTime() > 60000 && (
-                <span className="text-red-600 ml-2">(Stale data due to error)</span>
-              )}
-            </>
+          {isDataStale && (
+            <span className="text-destructive font-medium ml-2">(Stale data)</span>
           )}
         </CardDescription>
       </CardHeader>
-      <CardContent>
+      <CardContent className="pt-3 pb-2">
         {renderContent()}
         {currentAccountInfo?.time && (
-          <p className="text-xs text-muted-foreground mt-2">
-            Last updated: {new Date(currentAccountInfo.time).toLocaleString()}
-          </p>
+          <div className="flex justify-end">
+            <p className="text-xs text-muted-foreground mt-2">
+              Last updated: {new Date(currentAccountInfo.time).toLocaleString()}
+            </p>
+          </div>
         )}
       </CardContent>
     </Card>
