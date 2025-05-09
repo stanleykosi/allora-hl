@@ -1,32 +1,30 @@
 datasource db {
-  provider = "sqlite" 
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
 generator client {
-  provider = "prisma-client-js" 
+  provider = "prisma-client-js"
 }
-
 
 model TradeTemplate {
   id        String   @id @default(cuid())
-  createdAt DateTime @default(now()) 
-  updatedAt DateTime @updatedAt 
-  name      String   @unique 
-  size      Float 
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  name      String   @unique
+  size      Float
   leverage  Float
 }
 
-
 model TradeLog {
-  id                 String   @id @default(cuid()) 
+  id                 String   @id @default(cuid())
   timestamp          DateTime @default(now())
-  symbol             String 
-  direction          String 
-  size               Float 
-  entryPrice         Float 
-  status             String 
-  hyperliquidOrderId String? 
-  errorMessage       String? 
+  symbol             String
+  direction          String
+  size               Float
+  entryPrice         Float
+  status             String
+  hyperliquidOrderId String?
+  errorMessage       String?
 }
 
