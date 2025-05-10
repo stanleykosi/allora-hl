@@ -112,7 +112,7 @@ const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
   }, [isOpen]);
 
   const handleConfirm = async () => {
-    if (isExecuting) return;
+    if (isExecuting || !tradeDetails) return;
     setIsExecuting(true);
     setErrorMsg(null);
 
