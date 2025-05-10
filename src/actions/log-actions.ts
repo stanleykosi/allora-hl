@@ -25,9 +25,18 @@ export async function logTradeAction(
   data: Omit<TradeLogEntry, "id" | "timestamp">,
 ): Promise<ActionState<TradeLogEntry>> {
   const startTime = Date.now();
-  console.log("[TradeLog] Starting to log trade with data:", data);
+  console.log("[TradeLog] Starting to log trade with data:", JSON.stringify(data, null, 2));
 
   try {
+    // Test database connection first
+    try {
+      await prisma.$connect();
+      console.log("[TradeLog] Database connection successful");
+    } catch (connError) {
+      console.error("[TradeLog] Database connection failed:", connError);
+      throw new Error(`Database connection failed: ${connError instanceof Error ? connError.message : 'Unknown error'}`);
+    }
+
     // Basic validation
     if (
       !data.symbol ||
@@ -36,6 +45,13 @@ export async function logTradeAction(
       typeof data.entryPrice !== "number" ||
       !data.status
     ) {
+      console.error("[TradeLog] Validation failed:", {
+        symbol: data.symbol,
+        direction: data.direction,
+        size: data.size,
+        entryPrice: data.entryPrice,
+        status: data.status
+      });
       throw new Error("Missing required fields for trade log entry.");
     }
 
@@ -46,6 +62,8 @@ export async function logTradeAction(
       errorMessage: data.errorMessage || null,
     };
 
+    console.log("[TradeLog] Attempting to create entry with data:", JSON.stringify(entryData, null, 2));
+
     const newLogEntry = await prisma.tradeLog.create({
       data: entryData,
     });
@@ -53,13 +71,15 @@ export async function logTradeAction(
     const logTime = Date.now() - startTime;
     console.log(
       `[TradeLog] Successfully created entry in ${logTime}ms:`,
-      {
+      JSON.stringify({
         id: newLogEntry.id,
         timestamp: new Date(newLogEntry.timestamp).toISOString(),
         symbol: newLogEntry.symbol,
         direction: newLogEntry.direction,
         status: newLogEntry.status,
-      }
+        hyperliquidOrderId: newLogEntry.hyperliquidOrderId,
+        errorMessage: newLogEntry.errorMessage
+      }, null, 2)
     );
 
     return {
@@ -77,6 +97,11 @@ export async function logTradeAction(
     if (error instanceof PrismaClientKnownRequestError) {
       detailedError = `Prisma error (${error.code}): ${error.message}`;
       errorMessage = "Database error occurred while logging trade.";
+      console.error("[TradeLog] Prisma error details:", {
+        code: error.code,
+        message: error.message,
+        meta: error.meta
+      });
     } else if (error instanceof Error) {
       detailedError = error.message;
       if (!error.message.includes("Missing required fields")) {
@@ -84,6 +109,11 @@ export async function logTradeAction(
       } else {
         errorMessage = error.message;
       }
+      console.error("[TradeLog] Error details:", {
+        name: error.name,
+        message: error.message,
+        stack: error.stack
+      });
     }
 
     return {
@@ -91,6 +121,13 @@ export async function logTradeAction(
       message: errorMessage,
       error: detailedError,
     };
+  } finally {
+    try {
+      await prisma.$disconnect();
+      console.log("[TradeLog] Database connection closed");
+    } catch (disconnError) {
+      console.error("[TradeLog] Error closing database connection:", disconnError);
+    }
   }
 }
 

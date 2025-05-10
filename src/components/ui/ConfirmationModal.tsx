@@ -112,35 +112,41 @@ const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
   }, [isOpen]);
 
   const handleConfirm = async () => {
-    if (!tradeDetails || isExecuting || !masterSwitchEnabled) return;
-
+    if (isExecuting) return;
     setIsExecuting(true);
     setErrorMsg(null);
 
-    let actionResult: ActionState<HyperliquidOrderResult> | undefined;
+    // Initialize logging variables
+    let logStatus = "pending";
+    let logOrderId = null;
+    let logEntryPrice = tradeDetails.currentMarketPrice; // Use estimated price initially
+    let logErrorMessage = null;
 
     try {
-      // Adjust size formatting if needed by SDK (example: ensure sufficient decimals)
-      // const formattedSize = formatNumber(tradeDetails.size, 8); // Ensure 8 decimals for BTC size
+      console.log("[TradeModal] Starting trade execution with details:", {
+        symbol: tradeDetails.symbol,
+        direction: tradeDetails.direction,
+        size: tradeDetails.size,
+        leverage: tradeDetails.leverage,
+        entryPrice: tradeDetails.currentMarketPrice
+      });
 
-      const orderParams = {
-        assetName: tradeDetails.symbol.split('-')[0], // Extract asset name (e.g., BTC)
+      // Execute the trade
+      const actionResult = await placeMarketOrderAction({
+        assetName: tradeDetails.symbol,
         isBuy: tradeDetails.direction === "long",
-        size: tradeDetails.size, // Pass the raw size number
-        leverage: tradeDetails.leverage, // Pass leverage for pre-setting
-        // Pass override price if needed - using calculated value here
-        overridePriceString: tradeDetails.priceLimitValue.toFixed(1),
-        // Optional: Add cloid if needed
-      };
+        size: tradeDetails.size,
+        leverage: tradeDetails.leverage,
+      });
 
-      console.log("Executing placeMarketOrderAction with params:", orderParams);
-      actionResult = await placeMarketOrderAction(orderParams);
+      console.log("[TradeModal] Trade execution result:", {
+        success: actionResult.isSuccess,
+        status: actionResult.data?.status,
+        message: actionResult.message,
+        error: actionResult.error
+      });
 
-      let logStatus: string;
-      let logOrderId: string | null = null;
-      let logErrorMessage: string | null = null;
-      let logEntryPrice = tradeDetails.currentMarketPrice; // Use market price as estimate if fill fails
-
+      // Update logging variables based on trade result
       if (actionResult.isSuccess) {
         logStatus = actionResult.data.status; // 'filled' or 'resting'
         logOrderId = String(actionResult.data.oid);
@@ -163,52 +169,66 @@ const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
           variant: "destructive",
         });
       }
-
-      // Log the trade attempt regardless of success/failure
-      try {
-        const logData: Omit<TradeLogEntry, "id" | "timestamp"> = {
-          symbol: tradeDetails.symbol,
-          direction: tradeDetails.direction,
-          size: tradeDetails.size,
-          entryPrice: logEntryPrice,
-          status: logStatus,
-          hyperliquidOrderId: logOrderId,
-          errorMessage: logErrorMessage,
-        };
-        await logTradeAction(logData);
-      } catch (logError) {
-        console.error("Failed to log trade:", logError);
-        // Optionally show a secondary toast for log failure
-      }
-
     } catch (error) {
-      console.error("Unexpected error during trade confirmation:", error);
-      const message = error instanceof Error ? error.message : "An unknown error occurred.";
-      setErrorMsg(message);
+      console.error("[TradeModal] Error during trade execution:", error);
+      logStatus = "failed";
+      logErrorMessage = error instanceof Error ? error.message : "An unknown error occurred";
+      setErrorMsg(logErrorMessage);
       toast({
-        title: "Unexpected Error",
-        description: message,
+        title: "Trade Execution Failed",
+        description: logErrorMessage,
         variant: "destructive",
       });
-      // Log the failure even on unexpected errors
-      try {
-        await logTradeAction({
-          symbol: tradeDetails.symbol,
-          direction: tradeDetails.direction,
-          size: tradeDetails.size,
-          entryPrice: tradeDetails.currentMarketPrice, // Best guess price
-          status: 'failed',
-          errorMessage: `Unexpected client-side error: ${message}`,
+    }
+
+    // Log the trade attempt regardless of success/failure
+    // Moved outside the main try-catch to ensure it always executes
+    try {
+      console.log("[TradeModal] Preparing to log trade with data:", {
+        symbol: tradeDetails.symbol,
+        direction: tradeDetails.direction,
+        size: tradeDetails.size,
+        entryPrice: logEntryPrice,
+        status: logStatus,
+        hyperliquidOrderId: logOrderId,
+        errorMessage: logErrorMessage
+      });
+
+      const logData: Omit<TradeLogEntry, "id" | "timestamp"> = {
+        symbol: tradeDetails.symbol,
+        direction: tradeDetails.direction,
+        size: tradeDetails.size,
+        entryPrice: logEntryPrice,
+        status: logStatus,
+        hyperliquidOrderId: logOrderId,
+        errorMessage: logErrorMessage,
+      };
+
+      const logResult = await logTradeAction(logData);
+      console.log("[TradeModal] Trade log result:", {
+        success: logResult.isSuccess,
+        message: logResult.message,
+        error: logResult.error
+      });
+
+      if (!logResult.isSuccess) {
+        console.error("[TradeModal] Failed to log trade:", logResult.error);
+        // Show a secondary toast for log failure
+        toast({
+          title: "Warning: Trade Logging Failed",
+          description: "The trade was executed but could not be logged. Please check the logs.",
+          variant: "destructive",
         });
-      } catch (logError) {
-        console.error("Failed to log unexpected trade error:", logError);
       }
+    } catch (logError) {
+      console.error("[TradeModal] Error during trade logging:", logError);
+      toast({
+        title: "Warning: Trade Logging Failed",
+        description: "The trade was executed but could not be logged. Please check the logs.",
+        variant: "destructive",
+      });
     } finally {
-      // Only set isExecuting false if an error occurred (modal stays open)
-      // Otherwise, modal closes automatically on success
-      if (errorMsg || !actionResult?.isSuccess) {
-        setIsExecuting(false);
-      }
+      setIsExecuting(false);
     }
   };
 

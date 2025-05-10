@@ -1,10 +1,24 @@
-import prisma from '@/lib/prisma';
+import { PrismaClient } from '@prisma/client';
+
+const prisma = new PrismaClient();
 
 async function main() {
   try {
+    // Test database connection
+    console.log('Testing database connection...');
+    await prisma.$connect();
+    console.log('Database connection successful');
+
     // Fetch all trade logs
-    const tradeLogs = await prisma.tradeLog.findMany();
-    console.log('Successfully fetched trade logs:');
+    console.log('\nFetching trade logs...');
+    const tradeLogs = await prisma.tradeLog.findMany({
+      orderBy: {
+        timestamp: 'desc'
+      },
+      take: 10
+    });
+
+    console.log('\nMost recent trade logs:');
     console.log(JSON.stringify(tradeLogs, null, 2));
 
     // Count total entries
@@ -12,10 +26,14 @@ async function main() {
     console.log(`\nTotal trade logs: ${count}`);
 
   } catch (error) {
-    console.error('Error fetching trade logs:', error);
+    console.error('Error:', error);
   } finally {
     await prisma.$disconnect();
   }
 }
 
-main(); 
+main()
+  .catch((error) => {
+    console.error('Unhandled error:', error);
+    process.exit(1);
+  }); 

@@ -85,35 +85,59 @@ const TradeLogDisplay = forwardRef<TradeLogDisplayRef, TradeLogDisplayProps>(({
   initialLogEntries,
   initialError,
 }, ref) => {
-  // Use a long interval or null to primarily rely on manual refresh for logs
-  // Logs only change when trades happen, so frequent polling isn't essential.
-  const LOG_REFRESH_INTERVAL = null; // Set to null to disable periodic fetching, rely on manual refresh
+  // Use a longer interval for periodic fetching
+  const LOG_REFRESH_INTERVAL = 30000; // Set to 30 seconds to reduce server load
 
   // State for manual refresh loading indicator
   const [isManualLoading, setIsManualLoading] = useState(false);
-
-  // Add state to track last update time for debugging
   const [lastRefreshTime, setLastRefreshTime] = useState<string>('');
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Create a custom fetcher function that includes timestamp to avoid caching
   const customFetcher = useCallback(async () => {
-    return fetchTradeLogAction(100, Date.now());
-  }, []);
+    if (isRefreshing) {
+      console.log('[TradeLogDisplay] Skipping fetch - already in progress');
+      return {
+        isSuccess: true,
+        message: "Skipped refresh - already in progress",
+        data: null
+      };
+    }
+
+    console.log('[TradeLogDisplay] Fetching trade logs...');
+    setIsRefreshing(true);
+
+    try {
+      const result = await fetchTradeLogAction(100, Date.now());
+      console.log('[TradeLogDisplay] Fetch result:', {
+        success: result.isSuccess,
+        count: result.data?.length || 0,
+        error: result.error
+      });
+      return result;
+    } catch (error) {
+      console.error('[TradeLogDisplay] Error in customFetcher:', error);
+      throw error;
+    } finally {
+      setIsRefreshing(false);
+      console.log('[TradeLogDisplay] Fetch completed, refreshing state reset');
+    }
+  }, [isRefreshing]);
 
   // Fetch logs using the hook with the customFetcher
   const {
     data: logs,
-    isLoading: isPeriodicLoading, // Loading state from the hook (covers initial load)
+    isLoading: isPeriodicLoading,
     error,
     refresh,
   } = usePeriodicFetcher(
-    customFetcher, // Use our custom fetcher that includes a timestamp
-    LOG_REFRESH_INTERVAL, // Interval (null disables periodic)
-    initialLogEntries, // Initial data
+    customFetcher,
+    LOG_REFRESH_INTERVAL,
+    initialLogEntries,
   );
 
-  // Combine loading states: true if either periodic or manual refresh is happening
-  const isLoading = isPeriodicLoading || isManualLoading;
+  // Combine loading states
+  const isLoading = isPeriodicLoading || isManualLoading || isRefreshing;
 
   // Fix error handling - don't show error if we have logs or are loading
   const currentError = (!isLoading && ((logs && logs.length === 0) || logs === null)) ? error : null;
@@ -121,59 +145,61 @@ const TradeLogDisplay = forwardRef<TradeLogDisplayRef, TradeLogDisplayProps>(({
   // Prefer fresh data from the fetcher, fallback to initial data if fetcher hasn't populated yet
   const currentLogs = logs ?? initialLogEntries;
 
-  // Enhanced refresh function with better error handling
+  // Enhanced refresh function with better error handling and debouncing
   const performRefresh = useCallback(async () => {
-    if (isManualLoading) return; // Prevent multiple clicks
+    if (isManualLoading || isRefreshing) {
+      console.log('[TradeLogDisplay] Skipping refresh - already in progress');
+      return;
+    }
 
     setIsManualLoading(true);
+    console.log('[TradeLogDisplay] Starting manual refresh...');
 
     try {
       const now = new Date();
-      console.log(`Starting trade log refresh at ${now.toISOString()}...`);
-      console.log(`Current browser time: ${now.toString()}`);
+      console.log(`[TradeLogDisplay] Refresh started at ${now.toISOString()}`);
 
       // Force cache invalidation by passing a timestamp parameter
-      // This ensures we're not getting cached results from previous requests
       const fetchResult = await fetchTradeLogAction(100, Date.now());
 
       // Log the results to help debug
       if (fetchResult.isSuccess && fetchResult.data) {
-        console.log(`Fetched ${fetchResult.data.length} trade logs, newest timestamp:`,
-          fetchResult.data.length > 0 ? new Date(fetchResult.data[0].timestamp).toISOString() : 'No logs');
-
-        // Log the first few entries to see their timestamps
-        const recentLogs = fetchResult.data.slice(0, 5);
-        console.log('Most recent logs:', recentLogs.map(log => ({
-          timestamp: new Date(log.timestamp).toISOString(),
-          symbol: log.symbol,
-          direction: log.direction,
-          status: log.status
-        })));
+        console.log(`[TradeLogDisplay] Fetched ${fetchResult.data.length} trade logs`);
+        if (fetchResult.data.length > 0) {
+          console.log('[TradeLogDisplay] Most recent log:', {
+            timestamp: new Date(fetchResult.data[0].timestamp).toISOString(),
+            symbol: fetchResult.data[0].symbol,
+            direction: fetchResult.data[0].direction,
+            status: fetchResult.data[0].status
+          });
+        }
       } else {
-        console.error('Error fetching trade logs:', fetchResult.message);
+        console.error('[TradeLogDisplay] Error fetching trade logs:', fetchResult.message);
       }
-
-      console.log('Trade log refresh completed successfully');
 
       // Update last refresh time
       setLastRefreshTime(new Date().toLocaleTimeString());
     } catch (error) {
-      console.error('Error during trade log refresh:', error);
+      console.error('[TradeLogDisplay] Error during refresh:', error);
     } finally {
+      // Always reset the loading state, even if there's an error
       setIsManualLoading(false);
+      console.log('[TradeLogDisplay] Refresh completed, loading state reset');
     }
-  }, [refresh, isManualLoading]);
+  }, [isManualLoading, isRefreshing]);
 
   // Expose the refresh method via ref with better implementation
   useImperativeHandle(ref, () => ({
     refresh: async () => {
       try {
-        console.log('External refresh request received');
+        console.log('[TradeLogDisplay] External refresh requested');
         await performRefresh();
-        console.log('External refresh completed');
+        console.log('[TradeLogDisplay] External refresh completed');
         return Promise.resolve();
       } catch (error) {
-        console.error('Error in external refresh:', error);
+        console.error('[TradeLogDisplay] Error in external refresh:', error);
+        // Ensure loading state is reset even if there's an error
+        setIsManualLoading(false);
         return Promise.resolve();
       }
     }
@@ -182,9 +208,26 @@ const TradeLogDisplay = forwardRef<TradeLogDisplayRef, TradeLogDisplayProps>(({
   // Add effect to log when data changes
   useEffect(() => {
     if (logs) {
-      console.log(`Logs updated, count: ${logs.length}`);
+      console.log(`[TradeLogDisplay] Logs updated, count: ${logs.length}`);
+      if (logs.length > 0) {
+        console.log('[TradeLogDisplay] Most recent log:', {
+          timestamp: new Date(logs[0].timestamp).toISOString(),
+          symbol: logs[0].symbol,
+          direction: logs[0].direction,
+          status: logs[0].status
+        });
+      }
+      // Reset loading states when new data arrives
+      setIsManualLoading(false);
+      setIsRefreshing(false);
     }
   }, [logs]);
+
+  // Add effect to refresh logs when the component mounts
+  useEffect(() => {
+    console.log('[TradeLogDisplay] Component mounted, performing initial refresh');
+    performRefresh();
+  }, [performRefresh]);
 
   const renderTableContent = () => {
     // Prioritize showing loading state

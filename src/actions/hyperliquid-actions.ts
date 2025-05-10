@@ -404,6 +404,40 @@ export async function placeMarketOrderAction(params: {
       };
     }
 
+    // Check account margin before placing order
+    try {
+      const { publicClient } = setupClients();
+      const userAddress = config.account.address;
+      const clearinghouseState = await publicClient.clearinghouseState({
+        user: userAddress,
+      });
+
+      // Calculate required margin for this order
+      const orderValue = size * currentPrice;
+      const requiredMargin = orderValue / leverage;
+
+      // Get available margin
+      const availableMargin = parseFloat(clearinghouseState.withdrawable || "0");
+
+      console.log(`Margin check:
+        Order value: $${orderValue.toFixed(2)}
+        Required margin (${leverage}x leverage): $${requiredMargin.toFixed(2)}
+        Available margin: $${availableMargin.toFixed(2)}
+      `);
+
+      if (requiredMargin > availableMargin) {
+        return {
+          isSuccess: false,
+          message: `Insufficient margin. Required: $${requiredMargin.toFixed(2)}, Available: $${availableMargin.toFixed(2)}`,
+          error: "Insufficient margin to place order",
+        };
+      }
+    } catch (marginError) {
+      console.error("Error checking margin:", marginError);
+      // Continue with the order if we can't check margin
+      console.warn("Could not verify margin, proceeding with order...");
+    }
+
     // Add minimum size check - many exchanges require at least 0.001 BTC or more
     const MINIMUM_ORDER_SIZE = 0.001;
     if (size < MINIMUM_ORDER_SIZE) {
@@ -544,57 +578,82 @@ export async function placeMarketOrderAction(params: {
     let priceString;
     const TICK_SIZE = tickSize; // Use the dynamically determined tick size instead of hardcoding 0.5
 
-    // If an override price string is provided, use it directly instead of calculating
-    if (overridePriceString) {
-      priceString = overridePriceString;
-      console.log(`Using override price string: ${priceString} instead of calculating from reference price: ${currentPrice}`);
-    } else {
-      // Regular price calculation logic
-      if (isBuy) {
-        // For BUY orders, add 2% to reference price (within Hyperliquid's limits)
-        // First multiply by 10, round to nearest integer, then divide by 10 to get a value with one decimal place
-        let buyPrice = Math.ceil(currentPrice * 1.02 / TICK_SIZE) * TICK_SIZE;
-
-        // Force exactly one decimal place - critical for Hyperliquid
-        buyPrice = Math.round(buyPrice * 10) / 10;
-
-        // Ensure we're at a valid tick by checking remainder
-        if ((buyPrice / TICK_SIZE) % 1 !== 0) {
-          buyPrice = Math.ceil(buyPrice / TICK_SIZE) * TICK_SIZE;
-        }
-
-        // Convert to string with exactly one decimal place
-        priceString = buyPrice.toFixed(1);
+    try {
+      // If an override price string is provided, use it directly instead of calculating
+      if (overridePriceString) {
+        priceString = overridePriceString;
+        console.log(`Using override price string: ${priceString} instead of calculating from reference price: ${currentPrice}`);
       } else {
-        // For SELL orders, subtract 2% from reference price (within Hyperliquid's limits)
-        let sellPrice = Math.floor(currentPrice * 0.98 / TICK_SIZE) * TICK_SIZE;
+        // Regular price calculation logic
+        if (isBuy) {
+          // For BUY orders, add 2% to reference price (within Hyperliquid's limits)
+          let buyPrice = currentPrice * 1.02;
 
-        // Force exactly one decimal place - critical for Hyperliquid
-        sellPrice = Math.round(sellPrice * 10) / 10;
+          // Round UP to nearest tick size for buy orders
+          // First, calculate how many ticks we need
+          const ticks = Math.ceil(buyPrice / TICK_SIZE);
+          // Then multiply back to get the exact price
+          buyPrice = ticks * TICK_SIZE;
 
-        // Ensure we're at a valid tick by checking remainder
-        if ((sellPrice / TICK_SIZE) % 1 !== 0) {
-          sellPrice = Math.floor(sellPrice / TICK_SIZE) * TICK_SIZE;
+          // Convert to string with exactly one decimal place
+          priceString = buyPrice.toFixed(1);
+
+          console.log(`Buy price calculation:
+            Original price: ${currentPrice}
+            After 2% increase: ${currentPrice * 1.02}
+            Ticks needed: ${ticks}
+            Final price: ${buyPrice}
+            Tick size: ${TICK_SIZE}
+          `);
+        } else {
+          // For SELL orders, subtract 2% from reference price (within Hyperliquid's limits)
+          let sellPrice = currentPrice * 0.98;
+
+          // Round DOWN to nearest tick size for sell orders
+          // First, calculate how many ticks we need
+          const ticks = Math.floor(sellPrice / TICK_SIZE);
+          // Then multiply back to get the exact price
+          sellPrice = ticks * TICK_SIZE;
+
+          // Convert to string with exactly one decimal place
+          priceString = sellPrice.toFixed(1);
+
+          console.log(`Sell price calculation:
+            Original price: ${currentPrice}
+            After 2% decrease: ${currentPrice * 0.98}
+            Ticks needed: ${ticks}
+            Final price: ${sellPrice}
+            Tick size: ${TICK_SIZE}
+          `);
         }
-
-        // Convert to string with exactly one decimal place
-        priceString = sellPrice.toFixed(1);
       }
 
-      // Double-check the price is valid by parsing and verifying the tick size directly
+      // Final validation to ensure price is at a valid tick
       const finalPrice = parseFloat(priceString);
       const tickCheck = (finalPrice / TICK_SIZE) % 1;
 
       if (Math.abs(tickCheck) > 0.0001) { // Use small epsilon for floating point comparison
         console.error(`CRITICAL ERROR: Final price ${priceString} (${finalPrice}) is not at a valid tick increment. Remainder: ${tickCheck}, Tick Size: ${TICK_SIZE}`);
-        // Emergency correction
-        const correctedPrice = Math.round(finalPrice / TICK_SIZE) * TICK_SIZE;
+        // Emergency correction - calculate exact tick
+        const ticks = Math.round(finalPrice / TICK_SIZE);
+        const correctedPrice = ticks * TICK_SIZE;
         priceString = correctedPrice.toFixed(1);
-        console.log(`Emergency correction to price: ${priceString}`);
+        console.log(`Emergency correction to price: ${priceString} (${ticks} ticks)`);
       }
-    }
 
-    console.log(`Using Hyperliquid-compatible price for ${isBuy ? "BUY" : "SELL"}: ${priceString} (reference: ${currentPrice}, tick size: ${TICK_SIZE})`);
+      // Double check the final price is valid
+      const finalCheck = parseFloat(priceString);
+      const finalTickCheck = (finalCheck / TICK_SIZE) % 1;
+      if (Math.abs(finalTickCheck) > 0.0001) {
+        throw new Error(`Failed to generate valid tick size price. Final price: ${priceString}, Tick size: ${TICK_SIZE}, Remainder: ${finalTickCheck}`);
+      }
+
+      console.log(`Using Hyperliquid-compatible price for ${isBuy ? "BUY" : "SELL"}: ${priceString} (reference: ${currentPrice}, tick size: ${TICK_SIZE})`);
+
+    } catch (error) {
+      console.error("Error calculating price:", error);
+      throw new Error("Failed to calculate valid price for order");
+    }
 
     const sizeString = size.toString();
 
