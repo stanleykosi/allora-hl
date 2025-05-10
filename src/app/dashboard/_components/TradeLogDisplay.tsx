@@ -36,7 +36,7 @@
 "use client";
 
 import React, { useState, useCallback, forwardRef, useImperativeHandle, useRef, useEffect } from "react";
-import type { TradeLogEntry, AppSettings } from "@/types";
+import type { TradeLogEntry, AppSettings, ActionState } from "@/types";
 import { usePeriodicFetcher } from "@/hooks/usePeriodicFetcher";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
 import { fetchTradeLogAction } from "@/actions/log-actions";
@@ -101,7 +101,7 @@ const TradeLogDisplay = forwardRef<TradeLogDisplayRef, TradeLogDisplayProps>(({
         isSuccess: true,
         message: "Skipped refresh - already in progress",
         data: null
-      };
+      } as ActionState<TradeLogEntry[] | null>;
     }
 
     console.log('[TradeLogDisplay] Fetching trade logs...');
@@ -117,7 +117,11 @@ const TradeLogDisplay = forwardRef<TradeLogDisplayRef, TradeLogDisplayProps>(({
       return result;
     } catch (error) {
       console.error('[TradeLogDisplay] Error in customFetcher:', error);
-      throw error;
+      return {
+        isSuccess: false,
+        message: error instanceof Error ? error.message : "An unknown error occurred",
+        error: error instanceof Error ? error.message : "An unknown error occurred"
+      } as ActionState<TradeLogEntry[] | null>;
     } finally {
       setIsRefreshing(false);
       console.log('[TradeLogDisplay] Fetch completed, refreshing state reset');

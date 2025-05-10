@@ -404,40 +404,6 @@ export async function placeMarketOrderAction(params: {
       };
     }
 
-    // Check account margin before placing order
-    try {
-      const { publicClient } = setupClients();
-      const userAddress = config.account.address;
-      const clearinghouseState = await publicClient.clearinghouseState({
-        user: userAddress,
-      });
-
-      // Calculate required margin for this order
-      const orderValue = size * currentPrice;
-      const requiredMargin = orderValue / leverage;
-
-      // Get available margin
-      const availableMargin = parseFloat(clearinghouseState.withdrawable || "0");
-
-      console.log(`Margin check:
-        Order value: $${orderValue.toFixed(2)}
-        Required margin (${leverage}x leverage): $${requiredMargin.toFixed(2)}
-        Available margin: $${availableMargin.toFixed(2)}
-      `);
-
-      if (requiredMargin > availableMargin) {
-        return {
-          isSuccess: false,
-          message: `Insufficient margin. Required: $${requiredMargin.toFixed(2)}, Available: $${availableMargin.toFixed(2)}`,
-          error: "Insufficient margin to place order",
-        };
-      }
-    } catch (marginError) {
-      console.error("Error checking margin:", marginError);
-      // Continue with the order if we can't check margin
-      console.warn("Could not verify margin, proceeding with order...");
-    }
-
     // Add minimum size check - many exchanges require at least 0.001 BTC or more
     const MINIMUM_ORDER_SIZE = 0.001;
     if (size < MINIMUM_ORDER_SIZE) {
