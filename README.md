@@ -57,17 +57,17 @@ cd allora-hl
 
 2. Install Dependencies
 npm install
-# or
+ or
 yarn install
-# or
+or
 pnpm install
 
-3. Setup Environment Variables
+3. **Setup Environment Variables**
 This application requires API keys for both Allora and Hyperliquid, and a database connection string.
 Copy the example environment file:
 cp .env.example .env.local
 
-Edit .env.local and fill in your actual credentials:
+**Edit .env.local and fill in your actual credentials**
 ALLORA_API_KEY: Your API key for the Allora network.
 HYPERLIQUID_API_KEY: Your read-only API key for Hyperliquid. (Note: The application uses the private key for trade execution, this key might be for other informational purposes if the SDK uses it).
 HYPERLIQUID_API_SECRET: Your Hyperliquid trade-enabled private key (starting with 0x...). This is a highly sensitive key. Ensure it is correct and secure.
@@ -81,12 +81,12 @@ You can use a local SQLite file. Example: file:./dev.db (Ensure prisma/schema.pr
 The DATABASE_URL for SQLite would look like file:../db/dev.db if your schema.prisma is in prisma/ and you want the db in db/ at the project root. Or simply file:./dev.db if prisma/schema.prisma provider is "sqlite" and you want the db file in the prisma directory. The provided .env.example currently has DATABASE_URL= which implies PostgreSQL (Supabase), adjust your schema.prisma provider if using SQLite.
 HYPERLIQUID_USE_TESTNET: Set to true to use the Hyperliquid Testnet. Defaults to false (Mainnet) if not set.
 
-SECURITY WARNING: Never commit your .env.local file to Git. It contains sensitive credentials. The .gitignore file is already configured to ignore *.env.local.
+**SECURITY WARNING** Never commit your .env.local file to Git. It contains sensitive credentials. The .gitignore file is already configured to ignore *.env.local.
 
-4. Setup Database with Prisma
+**4. Setup Database with Prisma**
 This project uses Prisma to manage the database schema for Trade Templates and Trade Logs.
 Ensure your prisma/schema.prisma file reflects your chosen database provider.
-For Supabase (PostgreSQL):
+**For Supabase (PostgreSQL)**
 datasource db {
   provider = "postgresql" // or "postgresql" for Supabase
   url      = env("DATABASE_URL")
@@ -98,11 +98,11 @@ datasource db {
 }
 (If using SQLite, ensure DATABASE_URL in .env.local is set accordingly, e.g., file:../db/dev.db if db is at project root, or update schema path).
 
-Generate Prisma Client:
+**Generate Prisma Client:**
 This step creates the necessary Prisma Client code based on your schema. It's usually run automatically after npm install due to the postinstall script in package.json. If not, run manually:
 npx prisma generate
 
-Apply Database Migrations (Create tables):
+**Apply Database Migrations (Create tables):**
 For Supabase (PostgreSQL) or other PostgreSQL databases:
 Use prisma migrate deploy if you are deploying an existing migration set, or prisma migrate dev for development to create and apply migrations.
 If you have existing migrations (like the init migration in this project):
@@ -112,20 +112,21 @@ If you are starting fresh or making schema changes in development:
 npx prisma migrate dev --name your_migration_name
 This will create the necessary tables (TradeTemplate, TradeLog) in your Supabase database.
 
-For Local SQLite Development:
+**For Local SQLite Development:**
 This command will create the database file (e.g., dev.db) and apply the schema.
 npx prisma migrate dev --name init
 (If you are switching from PostgreSQL to SQLite, you might need to delete existing migrations in prisma/migrations that were for PostgreSQL and then run prisma migrate dev --name init_sqlite).
 
-Alternative for Supabase (if schema is already defined and you want to push without migrations):
+**Alternative for Supabase (if schema is already defined and you want to push without migrations):**
 If your schema.prisma is finalized and you want to push it directly to Supabase (e.g., for a fresh setup without formal migration history for this tool specifically), you can use:
 npx prisma db push
 Caution: db push is generally for prototyping and bypasses the migration history system. For production or team environments, prisma migrate dev and prisma migrate deploy are preferred.
 
-5. Run the Development Server
+**5. Run the Development Server**
 npm run dev
-# or
+ or
 yarn dev
-# or
+ or
 pnpm dev
+
 Open http://localhost:3000 with your browser to see the application. You will be redirected to /dashboard.
